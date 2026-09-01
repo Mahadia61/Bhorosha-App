@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Bhorosha",
+    "slug": "bhorosha",
+    "scheme": "bhorosha",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": { "typedRoutes": true },
+    "android": { "package": "ac.cuet.bhorosha" },
+    "ios": { "bundleIdentifier": "ac.cuet.bhorosha" }
+  }
+}

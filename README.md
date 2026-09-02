@@ -8,13 +8,17 @@ This repository contains the mobile-first frontend built with Expo and React Nat
 
 ## Features
 
-- Student, teacher, and admin experiences
+- Three isolated role-specific bottom navigations: Student, Teacher, and Admin
 - CUET-style sign-up and sign-in flows
 - Browse and search courses and teachers
 - Detailed multi-criteria course ratings
 - Anonymous course and teacher reviews
 - Course-specific anonymous Q&A
-- Teacher dashboard, feedback feed, and response workflow
+- Many-to-many course assignment: one course can have several teachers and a teacher can teach several courses
+- Teacher dashboard, assigned-course feedback feed, and response workflow
+- Student-only review/question submission, teacher-only answer workflow, and admin-only platform moderation
+- Bangla and English community-language masking before reviews, questions, or answers are saved
+- AI review-summary entry points with a safe backend endpoint contract and local-development fallback
 - Student activity history and profile settings
 - Admin console for managing the local course catalogue
 - Light/dark appearance support
@@ -67,15 +71,25 @@ npx expo start --tunnel --clear
 
 ## Demo mode
 
-Firebase is optional while reviewing the frontend. Without a `.env` file, the app uses locally stored demo data. Use any password with these accounts:
+Firebase is optional while reviewing the frontend. Without a `.env` file, the app uses locally stored demo data:
 
 | Account | Email | What you can test |
 | --- | --- | --- |
-| Student | `u123456@student.cuet.ac.bd` | Courses, reviews, teacher profiles, Q&A, activity |
-| Teacher | `u1001@teacher.cuet.ac.bd` | Dashboard, student feedback, and answering course questions |
-| Admin | `admin@bhorosha.local` | Local user list and course catalogue management |
+| Student | `u123456@student.cuet.ac.bd` | `student@123` | Courses, reviews, teacher profiles, Q&A, activity |
+| Teacher | `u1001@teacher.cuet.ac.bd` | `teacher@123` | Dashboard, student feedback, and answering course questions |
+| Admin | `admin@gmail.com` | `admin@123` | Local user list and course catalogue management |
 
 You can also create new student or teacher accounts from the sign-up screen using a matching CUET email format.
+
+### Role navigation
+
+| Role | Bottom navigation | What the role can do |
+| --- | --- | --- |
+| Student | Home, Courses, Teachers, Activity, Profile | Submit anonymous course/teacher reviews, ask course questions, and respond constructively to course questions. |
+| Teacher | Dashboard, My courses, Feedback, Q&A, Profile | See feedback only for assigned courses, answer questions, and maintain a teaching profile. |
+| Admin | Overview, Courses, Members, Moderation, Analytics | Manage courses and multi-teacher assignments, member access, moderation, and platform metrics. |
+
+Teachers do not have any write or delete action for student reviews. Admin accounts are provisioned separately; local demo mode includes one for reviewing the frontend.
 
 ## Firebase setup
 
@@ -90,6 +104,8 @@ Fill in all `EXPO_PUBLIC_FIREBASE_*` values from your Firebase project, then:
 1. Enable **Email/Password** in Firebase Authentication.
 2. Create the Firestore collections below.
 3. Deploy the included [Firestore security rules](./firestore.rules) before production.
+4. If teachers will upload profile pictures, deploy the included [Storage rules](./storage.rules).
+5. To enable generated review summaries, implement the HTTPS contract in [AI_SUMMARY_SETUP.md](./AI_SUMMARY_SETUP.md). Keep the AI provider key on that server or Cloud Function.
 
 ### Firestore collections
 

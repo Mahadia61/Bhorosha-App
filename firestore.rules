@@ -1,33 +1,69 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function owns(field) { return signedIn() && request.auth.uid == field; }
-    function teaches(courseId) { return signedIn() && get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid; }
+    function own(userId) { return signedIn() && request.auth.uid == userId; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin() { return signedIn() && profile().data.role == 'admin'; }
+    function teaches(courseId) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/courses/$(courseId)).data.teacherIds;
+    }
+
+    // Admin profiles are created only through Firebase Admin SDK/Console, never by app clients.
     match /users/{userId} {
       allow read: if signedIn();
-      allow create: if owns(userId);
-      allow update: if owns(userId) && request.resource.data.role == resource.data.role;
+      allow create: if own(userId)
+        && request.resource.data.role in ['student', 'teacher'];
+      allow update: if isAdmin()
+        || (own(userId)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.active == resource.data.active);
       allow delete: if false;
     }
-    match /courses/{courseId} { allow read: if signedIn(); allow write: if false; }
+
+    match /courses/{courseId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
     match /reviews/{reviewId} {
       allow read: if signedIn();
-      allow create: if owns(request.resource.data.authorId);
-      allow update, delete: if owns(resource.data.authorId)
-        && request.resource.data.authorId == resource.data.authorId;
+      allow create: if own(request.resource.data.authorId)
+        && profile().data.role == 'student';
+      allow update, delete: if isAdmin()
+        || (own(resource.data.authorId)
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.courseId == resource.data.courseId);
     }
+
     match /professorReviews/{reviewId} {
       allow read: if signedIn();
-      allow create: if owns(request.resource.data.authorId);
-      allow update, delete: if owns(resource.data.authorId)
-        && request.resource.data.authorId == resource.data.authorId;
+      allow create: if own(request.resource.data.authorId)
+        && profile().data.role == 'student';
+      allow update, delete: if isAdmin()
+        || (own(resource.data.authorId)
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.professorId == resource.data.professorId);
     }
+
     match /courseQuestions/{questionId} {
       allow read: if signedIn();
-      allow create: if owns(request.resource.data.authorId);
-      allow update: if teaches(resource.data.courseId) && request.resource.data.authorId == resource.data.authorId;
-      allow delete: if owns(resource.data.authorId);
+      allow create: if own(request.resource.data.authorId)
+        && profile().data.role == 'student';
+      // Members can only append their own answer. They cannot edit the question
+      // or another member's answer; only admins may moderate the whole document.
+      allow update: if isAdmin()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answers'])
+          && request.resource.data.answers.size() == resource.data.answers.size() + 1
+          && request.resource.data.answers[resource.data.answers.size()].authorId == request.auth.uid
+          && ((profile().data.role == 'student'
+              && request.resource.data.answers[resource.data.answers.size()].authorRole == 'student')
+            || (teaches(resource.data.courseId)
+              && request.resource.data.answers[resource.data.answers.size()].authorRole == 'teacher')));
+      allow delete: if isAdmin() || own(resource.data.authorId);
     }
   }
 }

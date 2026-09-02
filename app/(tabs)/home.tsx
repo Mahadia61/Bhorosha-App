@@ -14,7 +14,7 @@ export default function Home() {
   const load = async () => { setRefreshing(true); try { setCourses(await services.courses()) } finally { setRefreshing(false) } }
   useEffect(() => { void load() }, [])
   const isTeacher = profile?.role === 'teacher'
-  const visibleCourses = useMemo(() => isTeacher ? courses.filter(course => course.teacherId === profile?.id) : courses.slice(0, 3), [courses, isTeacher, profile?.id])
+  const visibleCourses = useMemo(() => isTeacher ? courses.filter(course => course.teacherIds.includes(profile?.id ?? '')) : courses.slice(0, 3), [courses, isTeacher, profile?.id])
 
   return <Screen><ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 32 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}>
     <Text className="mt-6 text-sm text-muted">{isTeacher ? 'Teacher dashboard' : 'Welcome back,'}</Text>
@@ -26,14 +26,14 @@ export default function Home() {
       </View>
     </View></Card>
     <View className="mt-7 flex-row items-center justify-between"><Text className="text-xl font-bold text-ink dark:text-white">{isTeacher ? 'Your assigned courses' : `Popular in ${profile?.department ?? 'CSE'}`}</Text>
-      {!isTeacher && <Text onPress={() => router.push('/(tabs)/courses')} className="text-sm font-semibold text-brand">See all</Text>}
+      {!isTeacher && <Text onPress={() => router.push('/(student-tabs)/courses')} className="text-sm font-semibold text-brand">See all</Text>}
     </View>
     {visibleCourses.length ? visibleCourses.map(course => <Card key={course.id} className="mt-3">
       <Text onPress={() => router.push(`/course/${course.id}`)} className="text-xs font-bold text-brand">{course.code}</Text>
       <Text onPress={() => router.push(`/course/${course.id}`)} className="mt-1 text-base font-semibold text-ink dark:text-white">{course.title}</Text>
-      <Text className="mt-1 text-sm text-muted">{isTeacher ? `${course.semester} · ${course.credits} credits` : `${course.teacherName} · ${course.credits} credits`}</Text>
+      <Text className="mt-1 text-sm text-muted">{isTeacher ? `${course.semester} · ${course.credits} credits` : `${course.teacherNames.join(', ')} · ${course.credits} credits`}</Text>
       {!isTeacher && <View className="mt-3 flex-row items-center gap-2"><Stars value={4.5} /><Text className="text-xs text-muted">Community feedback</Text></View>}
     </Card>) : <Empty title="No assigned courses" body="Courses assigned to you will appear here." />}
-    {isTeacher ? <View className="mt-6 flex-row gap-3"><Text onPress={() => router.push('/teacher-feedback')} className="flex-1 rounded-xl bg-brand px-3 py-3 text-center text-sm font-semibold text-white">View feedback</Text><Text onPress={() => router.push('/teacher-questions')} className="flex-1 rounded-xl border border-slate-300 px-3 py-3 text-center text-sm font-semibold text-ink dark:border-slate-700 dark:text-white">Course Q&A</Text></View> : <Card className="mt-6"><View className="flex-row items-center gap-3"><Feather name="message-circle" size={21} color="#4F7EF7" /><View className="flex-1"><Text className="font-semibold text-ink dark:text-white">Share helpful feedback</Text><Text className="mt-1 text-sm text-muted">Choose a course, add ratings, and decide whether your name stays hidden.</Text></View></View></Card>}
+    {isTeacher ? <View className="mt-6 flex-row gap-3"><Text onPress={() => router.push('/(teacher-tabs)/feedback')} className="flex-1 rounded-xl bg-brand px-3 py-3 text-center text-sm font-semibold text-white">View feedback</Text><Text onPress={() => router.push('/(teacher-tabs)/questions')} className="flex-1 rounded-xl border border-slate-300 px-3 py-3 text-center text-sm font-semibold text-ink dark:border-slate-700 dark:text-white">Course Q&A</Text></View> : <Card className="mt-6"><View className="flex-row items-center gap-3"><Feather name="message-circle" size={21} color="#4F7EF7" /><View className="flex-1"><Text className="font-semibold text-ink dark:text-white">Share helpful feedback</Text><Text className="mt-1 text-sm text-muted">Choose a course, add ratings, and decide whether your name stays hidden.</Text></View></View></Card>}
   </ScrollView></Screen>
 }

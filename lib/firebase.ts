@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { getStorage } from 'firebase/storage'
 
 const config = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -16,3 +17,4 @@ const app = firebaseEnabled ? (getApps().length ? getApp() : initializeApp(confi
 // be added as a custom persistence adapter if a project needs explicit persistence.
 export const auth = app ? getAuth(app) : undefined
 export const db = app ? getFirestore(app) : undefined
+export const storage = app ? getStorage(app) : undefined

@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": ["expo-router", "expo-secure-store", ["expo-image-picker", { "photosPermission": "Allow Bhorosha to choose a profile photo." }]],
     "experiments": { "typedRoutes": true },
     "android": { "package": "ac.cuet.bhorosha" },
     "ios": { "bundleIdentifier": "ac.cuet.bhorosha" }

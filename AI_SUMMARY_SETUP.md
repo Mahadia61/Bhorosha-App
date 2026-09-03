@@ -1,17 +1,11 @@
-# AI review summaries
+# Review summaries
 
-The mobile app sends review text to `EXPO_PUBLIC_AI_SUMMARY_ENDPOINT` only when this value is set. Keep the model key on a Firebase Cloud Function, Cloud Run service, or another trusted backend—never in Expo public environment variables.
+Review summaries are handled by the optional separate `backend/` service—not by an Expo public endpoint or Firebase Cloud Function.
 
-The endpoint accepts a JSON `POST` body:
+1. Set `EXPO_PUBLIC_BACKEND_URL` in the app `.env`.
+2. Configure the backend’s `FIREBASE_SERVICE_ACCOUNT_JSON` so it can verify Firebase ID tokens and safely read authorised public reviews.
+3. Optionally configure an OpenAI-compatible provider using `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` in `backend/.env`.
 
-```json
-{ "subject": "your assigned courses", "reviews": [{ "text": "...", "ratings": { "teachingQuality": 4, "workload": 3, "gradingFairness": 4, "courseStructure": 4, "availability": 4 } }] }
-```
+The app sends the backend only a subject type and ID. The backend verifies the signed-in user and loads the relevant Firestore reviews itself. Raw review text, a Firebase service-account key, and an AI provider key are never bundled into the mobile app.
 
-It must return:
-
-```json
-{ "summary": "A short, constructive summary." }
-```
-
-Until an endpoint is configured, the button produces a clearly local, non-AI aggregate summary for frontend testing.
+If no AI provider key is configured, the backend returns a transparent deterministic aggregate. If no backend URL is configured at all, the mobile app produces the same local aggregate for development. Neither fallback repeats individual review text.

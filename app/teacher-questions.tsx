@@ -47,7 +47,7 @@ export default function TeacherQuestions({ inTab = false }: { inTab?: boolean })
     {questions.length ? questions.map(question => {
       const course = courses.find(value => value.id === question.courseId)
       return <Card key={question.id} className="mt-4">
-        <Text className="text-xs font-bold text-brand">{course?.code ?? 'Course'}</Text>
+        <Text className="text-xs font-bold text-brand">{course?.code ?? 'Course'} · {question.category}</Text>
         <Text className="mt-2 leading-5 text-ink dark:text-white">{question.text}</Text>
         {question.answers?.length ? question.answers.map(answer => <View key={answer.id} className="mt-3 rounded-xl bg-blue-50 p-3 dark:bg-slate-800"><Text className="text-xs font-bold text-brand">{answer.authorRole === 'teacher' ? 'TEACHER RESPONSE' : 'STUDENT RESPONSE'}</Text><Text className="mt-1 text-sm text-ink dark:text-white">{answer.text}</Text></View>) : null}<TextInput multiline value={drafts[question.id] ?? ''} onChangeText={text => setDrafts(current => ({ ...current, [question.id]: text }))} placeholder="Write in বাংলা or English" placeholderTextColor="#94A3B8" className="mt-4 min-h-20 rounded-xl border border-slate-200 p-3 text-base text-ink dark:border-slate-700 dark:text-white" /><Button className="mt-3" loading={sending === question.id} onPress={() => answer(question)}>Post teacher answer</Button>
       </Card>

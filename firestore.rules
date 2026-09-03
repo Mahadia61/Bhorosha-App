@@ -1,69 +1,421 @@
 rules_version = '2';
 
+// Firebase Spark direct-client rules. Public community documents intentionally
+// never contain a student UID, CUET email, student ID, or batch.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function own(userId) { return signedIn() && request.auth.uid == userId; }
-    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function isAdmin() { return signedIn() && profile().data.role == 'admin'; }
-    function teaches(courseId) {
+    function userProfile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function activeUser() {
       return signedIn()
-        && request.auth.uid in get(/databases/$(database)/documents/courses/$(courseId)).data.teacherIds;
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userProfile().data.active == true
+        && userProfile().data.emailVerified == true;
+    }
+    function isStudent() { return activeUser() && userProfile().data.role == 'student'; }
+    function isTeacher() { return activeUser() && userProfile().data.role == 'teacher'; }
+    function isAdmin() { return activeUser() && userProfile().data.role == 'admin'; }
+    function course(courseId) { return get(/databases/$(database)/documents/courses/$(courseId)); }
+    function courseExists(courseId) { return exists(/databases/$(database)/documents/courses/$(courseId)); }
+    function studentCanAccessCourse(courseId) {
+      return isStudent() && courseExists(courseId)
+        && course(courseId).data.department == userProfile().data.department;
+    }
+    function teacherTeaches(courseId) {
+      return isTeacher() && courseExists(courseId)
+        && request.auth.uid in course(courseId).data.teacherIds;
+    }
+    function canReadCourseContent(courseId) {
+      return isAdmin() || studentCanAccessCourse(courseId) || teacherTeaches(courseId);
+    }
+    function canReadProfessorContent(professorId) {
+      return isAdmin()
+        || (isTeacher() && request.auth.uid == professorId)
+        || (isStudent()
+          && exists(/databases/$(database)/documents/teacherDirectory/$(professorId))
+          && get(/databases/$(database)/documents/teacherDirectory/$(professorId)).data.department == userProfile().data.department);
+    }
+    function validText(value, maximum) {
+      return value is string && value.size() > 0 && value.size() <= maximum;
+    }
+    // All writes originate on a client on the Spark plan, so a server timestamp
+    // is not available without changing the public schema. Keep client clocks
+    // within a small tolerance to prevent a forged future timestamp from
+    // extending the 24-hour review editing window indefinitely.
+    function validFreshClientTime(value) {
+      return value is number
+        && value >= request.time.toMillis() - 300000
+        && value <= request.time.toMillis() + 300000;
+    }
+    function validDesignation(value) {
+      return value in ['Lecturer', 'Assistant Professor', 'Associate Professor', 'Professor'];
+    }
+    function validOptionalText(value, maximum) {
+      return value is string && value.size() <= maximum;
+    }
+    function validDirectory() {
+      return request.resource.data.keys().hasOnly(['name', 'department', 'designation', 'photoUrl', 'bio', 'active', 'updatedAt'])
+        && validText(request.resource.data.name, 100)
+        && validText(request.resource.data.department, 24)
+        && validDesignation(request.resource.data.designation)
+        && validOptionalText(request.resource.data.bio, 1000)
+        && request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 2048
+        && (request.resource.data.photoUrl == '' || request.resource.data.photoUrl.matches('^https://.+'))
+        && request.resource.data.active is bool
+        && validFreshClientTime(request.resource.data.updatedAt);
+    }
+    function validProfileUpdate() {
+      return validText(request.resource.data.name, 100)
+        && request.resource.data.darkMode is bool
+        && validFreshClientTime(request.resource.data.updatedAt)
+        && (request.resource.data.role != 'teacher' || validDesignation(request.resource.data.designation))
+        && (!request.resource.data.keys().hasAll(['bio']) || validOptionalText(request.resource.data.bio, 1000))
+        && (!request.resource.data.keys().hasAll(['photoUrl'])
+          || (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 2048
+            && request.resource.data.photoUrl.matches('^https://.+')));
+    }
+    function validStudentEmail() {
+      return request.auth.token.email != null && request.resource.data.email == request.auth.token.email
+        && request.resource.data.email.matches('^u[0-9]+@student\\.cuet\\.ac\\.bd$');
+    }
+    function validTeacherEmail() {
+      return request.auth.token.email != null && request.resource.data.email == request.auth.token.email
+        && request.resource.data.email.matches('^u[0-9]+@teacher\\.cuet\\.ac\\.bd$');
+    }
+    function validInitialProfile() {
+      return request.resource.data.keys().hasAll(['name', 'email', 'role', 'department', 'darkMode', 'active', 'emailVerified', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'department', 'designation', 'darkMode', 'active', 'emailVerified', 'batch', 'studentId', 'currentLevel', 'currentTerm', 'updatedAt'])
+        && validText(request.resource.data.name, 100)
+        && validText(request.resource.data.department, 24)
+        && validFreshClientTime(request.resource.data.updatedAt)
+        && request.resource.data.active == false && request.resource.data.emailVerified == false
+        && request.resource.data.darkMode == false
+        && ((request.resource.data.role == 'student' && validStudentEmail()
+              && validText(request.resource.data.batch, 30) && validText(request.resource.data.studentId, 30)
+              && request.resource.data.currentLevel in ['1', '2', '3', '4']
+              && request.resource.data.currentTerm in ['1', '2'])
+          || (request.resource.data.role == 'teacher' && validTeacherEmail()
+              && validDesignation(request.resource.data.designation)));
+    }
+    function pendingProfileVerification(userId) {
+      return own(userId)
+        && resource.data.emailVerified != true
+        && request.auth.token.email_verified == true
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.department == resource.data.department
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.darkMode == resource.data.darkMode
+        && request.resource.data.active == true && request.resource.data.emailVerified == true
+        && validFreshClientTime(request.resource.data.updatedAt)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'emailVerified', 'updatedAt']);
+    }
+    function validRatings(value) {
+      return value is map
+        && value.keys().hasOnly(['teachingQuality', 'workload', 'gradingFairness', 'courseStructure', 'availability', 'difficulty', 'learningValue'])
+        && value.keys().hasAll(['teachingQuality', 'workload', 'gradingFairness', 'courseStructure', 'availability', 'difficulty', 'learningValue'])
+        && value.teachingQuality is int && value.teachingQuality >= 1 && value.teachingQuality <= 5
+        && value.workload is int && value.workload >= 1 && value.workload <= 5
+        && value.gradingFairness is int && value.gradingFairness >= 1 && value.gradingFairness <= 5
+        && value.courseStructure is int && value.courseStructure >= 1 && value.courseStructure <= 5
+        && value.availability is int && value.availability >= 1 && value.availability <= 5
+        && value.difficulty is int && value.difficulty >= 1 && value.difficulty <= 5
+        && value.learningValue is int && value.learningValue >= 1 && value.learningValue <= 5;
+    }
+    function validPublicCourseReview() {
+      return request.resource.data.keys().hasAll(['courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt', 'updatedAt'])
+        && request.resource.data.courseId is string && validText(request.resource.data.text, 1500)
+        && validRatings(request.resource.data.ratings) && request.resource.data.anonymous is bool
+        && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
+          || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
+        && request.resource.data.createdAt is number
+        && (!request.resource.data.keys().hasAll(['updatedAt']) || request.resource.data.updatedAt is number);
+    }
+    function validPublicProfessorReview() {
+      return request.resource.data.keys().hasAll(['professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
+        && request.resource.data.professorId is string && validText(request.resource.data.text, 1500)
+        && request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && request.resource.data.anonymous is bool
+        && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
+          || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
+        && validFreshClientTime(request.resource.data.createdAt);
+    }
+    function validPublicQuestion() {
+      return request.resource.data.keys().hasOnly(['courseId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+        && request.resource.data.courseId is string
+        && request.resource.data.category in ['Course Content', 'Exam', 'Assignment', 'Project', 'Registration', 'Other']
+        && validText(request.resource.data.text, 1500) && request.resource.data.anonymous == true
+        && validText(request.resource.data.notificationKey, 128)
+        && validFreshClientTime(request.resource.data.createdAt);
+    }
+    function matchingCourseReviewMirror(reviewId) {
+      let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/courseReviews/$(reviewId)).data;
+      return mirror.id == reviewId && mirror.courseId == request.resource.data.courseId
+        && mirror.text == request.resource.data.text && mirror.ratings == request.resource.data.ratings
+        && mirror.anonymous == request.resource.data.anonymous && mirror.displayName == request.resource.data.displayName
+        && mirror.createdAt == request.resource.data.createdAt
+        && ((!('updatedAt' in request.resource.data) && !('updatedAt' in mirror))
+          || (mirror.updatedAt == request.resource.data.updatedAt));
+    }
+    function matchingProfessorReviewMirror(reviewId) {
+      let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/professorReviews/$(reviewId)).data;
+      return mirror.id == reviewId && mirror.professorId == request.resource.data.professorId
+        && mirror.text == request.resource.data.text && mirror.rating == request.resource.data.rating
+        && mirror.anonymous == request.resource.data.anonymous && mirror.displayName == request.resource.data.displayName
+        && mirror.createdAt == request.resource.data.createdAt;
+    }
+    function matchingQuestionMirror(questionId) {
+      let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(questionId)).data;
+      return mirror.id == questionId && mirror.courseId == request.resource.data.courseId
+        && mirror.category == request.resource.data.category && mirror.text == request.resource.data.text
+        && mirror.notificationKey == request.resource.data.notificationKey
+        && mirror.anonymous == request.resource.data.anonymous && mirror.createdAt == request.resource.data.createdAt;
+    }
+    function matchingAnswerMirror(questionId, answerId) {
+      let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/answers/$(answerId)).data;
+      return mirror.id == answerId && mirror.questionId == questionId
+        && mirror.courseId == get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId
+        && mirror.authorRole == request.resource.data.authorRole
+        && mirror.createdAt == request.resource.data.createdAt;
+    }
+    function matchingReviewIndex(reviewId) {
+      let index = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/courseReviewIndex/$(request.resource.data.courseId)).data;
+      return index.reviewId == reviewId && index.courseId == request.resource.data.courseId;
     }
 
-    // Admin profiles are created only through Firebase Admin SDK/Console, never by app clients.
     match /users/{userId} {
-      allow read: if signedIn();
-      allow create: if own(userId)
-        && request.resource.data.role in ['student', 'teacher'];
-      allow update: if isAdmin()
-        || (own(userId)
+      allow get: if own(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if own(userId) && validInitialProfile();
+      allow update: if pendingProfileVerification(userId)
+        || (own(userId) && activeUser()
           && request.resource.data.role == resource.data.role
           && request.resource.data.email == resource.data.email
-          && request.resource.data.active == resource.data.active);
+          && request.resource.data.active == resource.data.active
+          && request.resource.data.emailVerified == resource.data.emailVerified
+          && request.resource.data.department == resource.data.department
+          && validProfileUpdate()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'designation', 'photoUrl', 'bio', 'darkMode', 'updatedAt']))
+        || (isAdmin() && request.auth.uid != userId && resource.data.role != 'admin'
+          && request.resource.data.role == resource.data.role && request.resource.data.email == resource.data.email
+          && request.resource.data.department == resource.data.department
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt']));
+      allow delete: if false;
+
+      match /courseReviews/{reviewId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && isStudent()
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt'])
+          && existsAfter(/databases/$(database)/documents/courseReviews/$(reviewId))
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.courseId == request.resource.data.courseId
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.text == request.resource.data.text
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.ratings == request.resource.data.ratings
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.anonymous == request.resource.data.anonymous
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.displayName == request.resource.data.displayName
+          && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.createdAt == request.resource.data.createdAt
+          && request.resource.data.id == reviewId;
+        allow update: if own(userId) && isStudent()
+          && request.resource.data.id == resource.data.id && request.resource.data.courseId == resource.data.courseId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt', 'updatedAt'])
+          && request.time.toMillis() < resource.data.createdAt + 86400000
+          && existsAfter(/databases/$(database)/documents/courseReviews/$(reviewId));
+        allow delete: if false;
+      }
+
+      match /courseReviewIndex/{courseId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && isStudent() && request.resource.data.keys().hasOnly(['reviewId', 'courseId', 'createdAt'])
+          && request.resource.data.courseId == courseId && request.resource.data.reviewId is string;
+        allow update, delete: if false;
+      }
+
+      match /professorReviews/{reviewId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && isStudent()
+          && request.resource.data.keys().hasOnly(['id', 'professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId == request.resource.data.professorId
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.text == request.resource.data.text
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.rating == request.resource.data.rating
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.anonymous == request.resource.data.anonymous
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.displayName == request.resource.data.displayName
+          && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.createdAt == request.resource.data.createdAt
+          && request.resource.data.id == reviewId;
+        allow update, delete: if false;
+      }
+
+      match /questions/{questionId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && isStudent()
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId == request.resource.data.courseId
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.category == request.resource.data.category
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.text == request.resource.data.text
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.notificationKey == request.resource.data.notificationKey
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.anonymous == request.resource.data.anonymous
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.createdAt == request.resource.data.createdAt
+          && request.resource.data.id == questionId;
+        allow update, delete: if false;
+      }
+
+      match /answers/{answerId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && activeUser()
+          && request.resource.data.keys().hasOnly(['id', 'questionId', 'courseId', 'authorRole', 'createdAt'])
+          && request.resource.data.id == answerId && request.resource.data.questionId is string
+          && request.resource.data.courseId is string
+          && request.resource.data.authorRole in ['student', 'teacher']
+          && validFreshClientTime(request.resource.data.createdAt)
+          && existsAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId))
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId)).data.authorRole == request.resource.data.authorRole
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId)).data.createdAt == request.resource.data.createdAt
+          && get(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)).data.courseId == request.resource.data.courseId;
+        allow update, delete: if false;
+      }
+
+      match /activity/{activityId} {
+        allow read: if own(userId) && activeUser();
+        allow create, update: if own(userId) && activeUser()
+          && request.resource.data.keys().hasOnly(['kind', 'targetId', 'courseId', 'professorId', 'questionId', 'text', 'createdAt'])
+          && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt);
+        allow delete: if false;
+      }
+    }
+
+    match /teacherDirectory/{teacherId} {
+      allow read: if activeUser() && resource.data.active == true;
+      allow create: if own(teacherId) && isTeacher() && validDirectory()
+        && request.resource.data.name == userProfile().data.name && request.resource.data.department == userProfile().data.department
+        && request.resource.data.designation == userProfile().data.designation
+        && request.resource.data.active == true;
+      allow update: if (own(teacherId) && isTeacher()
+          && validDirectory() && request.resource.data.active == true
+          && request.resource.data.name == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.name
+          && request.resource.data.department == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.department
+          && request.resource.data.designation == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.designation)
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt']));
       allow delete: if false;
     }
 
     match /courses/{courseId} {
-      allow read: if signedIn();
+      allow read: if activeUser();
       allow create, update, delete: if isAdmin();
     }
 
-    match /reviews/{reviewId} {
-      allow read: if signedIn();
-      allow create: if own(request.resource.data.authorId)
-        && profile().data.role == 'student';
-      allow update, delete: if isAdmin()
-        || (own(resource.data.authorId)
-          && request.resource.data.authorId == resource.data.authorId
-          && request.resource.data.courseId == resource.data.courseId);
+    match /courseReviews/{reviewId} {
+      allow read: if canReadCourseContent(resource.data.courseId);
+      allow create: if isStudent() && validPublicCourseReview()
+        && studentCanAccessCourse(request.resource.data.courseId)
+        && validFreshClientTime(request.resource.data.createdAt)
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/courseReviews/$(reviewId))
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/courseReviewIndex/$(request.resource.data.courseId))
+        && matchingCourseReviewMirror(reviewId) && matchingReviewIndex(reviewId);
+      allow update: if isAdmin() || (isStudent() && validPublicCourseReview()
+        && request.resource.data.courseId == resource.data.courseId && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.keys().hasAll(['updatedAt']) && validFreshClientTime(request.resource.data.updatedAt)
+        && request.time.toMillis() < resource.data.createdAt + 86400000 && matchingCourseReviewMirror(reviewId));
+      allow delete: if isAdmin();
+
+      match /teacherResponses/{responseId} {
+        allow read: if canReadCourseContent(get(/databases/$(database)/documents/courseReviews/$(reviewId)).data.courseId);
+        allow create: if teacherTeaches(get(/databases/$(database)/documents/courseReviews/$(reviewId)).data.courseId)
+          && request.resource.data.keys().hasOnly(['teacherName', 'text', 'createdAt'])
+          && request.resource.data.teacherName == userProfile().data.name
+          && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt);
+        allow update, delete: if isAdmin();
+      }
     }
 
     match /professorReviews/{reviewId} {
-      allow read: if signedIn();
-      allow create: if own(request.resource.data.authorId)
-        && profile().data.role == 'student';
-      allow update, delete: if isAdmin()
-        || (own(resource.data.authorId)
-          && request.resource.data.authorId == resource.data.authorId
-          && request.resource.data.professorId == resource.data.professorId);
+      allow read: if canReadProfessorContent(resource.data.professorId);
+      allow create: if isStudent() && validPublicProfessorReview()
+        && exists(/databases/$(database)/documents/teacherDirectory/$(request.resource.data.professorId))
+        && get(/databases/$(database)/documents/teacherDirectory/$(request.resource.data.professorId)).data.department == userProfile().data.department
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/professorReviews/$(reviewId))
+        && matchingProfessorReviewMirror(reviewId);
+      allow update, delete: if isAdmin();
+
+      match /teacherResponses/{responseId} {
+        allow read: if canReadProfessorContent(get(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId);
+        allow create: if isTeacher()
+          && get(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['teacherName', 'text', 'createdAt'])
+          && request.resource.data.teacherName == userProfile().data.name
+          && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt);
+        allow update, delete: if isAdmin();
+      }
     }
 
     match /courseQuestions/{questionId} {
-      allow read: if signedIn();
-      allow create: if own(request.resource.data.authorId)
-        && profile().data.role == 'student';
-      // Members can only append their own answer. They cannot edit the question
-      // or another member's answer; only admins may moderate the whole document.
-      allow update: if isAdmin()
-        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answers'])
-          && request.resource.data.answers.size() == resource.data.answers.size() + 1
-          && request.resource.data.answers[resource.data.answers.size()].authorId == request.auth.uid
-          && ((profile().data.role == 'student'
-              && request.resource.data.answers[resource.data.answers.size()].authorRole == 'student')
-            || (teaches(resource.data.courseId)
-              && request.resource.data.answers[resource.data.answers.size()].authorRole == 'teacher')));
-      allow delete: if isAdmin() || own(resource.data.authorId);
+      allow read: if canReadCourseContent(resource.data.courseId);
+      allow create: if isStudent() && validPublicQuestion()
+        && studentCanAccessCourse(request.resource.data.courseId)
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(questionId))
+        && matchingQuestionMirror(questionId);
+      allow update, delete: if isAdmin();
+
+      match /answers/{answerId} {
+        allow read: if canReadCourseContent(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId);
+        allow create: if activeUser()
+          && request.resource.data.keys().hasOnly(['authorRole', 'authorName', 'text', 'createdAt'])
+          && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt)
+          && ((teacherTeaches(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
+              && request.resource.data.authorRole == 'teacher' && request.resource.data.authorName == userProfile().data.name)
+            || (studentCanAccessCourse(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
+              && request.resource.data.authorRole == 'student' && request.resource.data.authorName == 'A student'))
+          && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/answers/$(answerId))
+          && matchingAnswerMirror(questionId, answerId);
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // A teacher answer can create a notice, but only the student whose private
+    // question mirror contains the opaque key can read or mark that notice.
+    match /courseQuestionNotifications/{notificationId} {
+      allow read: if isAdmin() || (isStudent()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(resource.data.questionId))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(resource.data.questionId)).data.notificationKey == resource.data.notificationKey);
+      allow create: if teacherTeaches(request.resource.data.courseId)
+        && request.resource.data.keys().hasOnly(['questionId', 'courseId', 'notificationKey', 'title', 'body', 'read', 'createdAt'])
+        && request.resource.data.questionId is string && request.resource.data.courseId is string
+        && validText(request.resource.data.notificationKey, 128)
+        && validText(request.resource.data.title, 140) && validText(request.resource.data.body, 180)
+        && request.resource.data.read == false && validFreshClientTime(request.resource.data.createdAt)
+        && exists(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId))
+        && get(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)).data.courseId == request.resource.data.courseId
+        && get(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)).data.notificationKey == request.resource.data.notificationKey;
+      allow update: if isStudent()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(resource.data.questionId))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(resource.data.questionId)).data.notificationKey == resource.data.notificationKey
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if isAdmin();
+    }
+
+    match /courseGuides/{guideId} {
+      allow read: if canReadCourseContent(resource.data.courseId);
+      allow create: if isStudent() && studentCanAccessCourse(request.resource.data.courseId)
+        && request.resource.data.keys().hasOnly(['courseId', 'title', 'text', 'resources', 'createdAt'])
+        && validText(request.resource.data.title, 140) && validText(request.resource.data.text, 2000)
+        && validOptionalText(request.resource.data.resources, 1000) && validFreshClientTime(request.resource.data.createdAt);
+      allow update, delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if activeUser() && !isAdmin()
+        && request.resource.data.keys().hasOnly(['contentType', 'contentId', 'questionId', 'reportedBy', 'reason', 'status', 'createdAt'])
+        && request.resource.data.contentType in ['courseReview', 'professorReview', 'courseQuestion', 'answer']
+        && request.resource.data.contentId is string && request.resource.data.reportedBy == request.auth.uid
+        && ((request.resource.data.contentType == 'answer' && validText(request.resource.data.questionId, 128))
+          || (request.resource.data.contentType != 'answer' && !('questionId' in request.resource.data)))
+        && request.resource.data.reason in ['Offensive language', 'Personal attack', 'Fake information', 'Spam', 'Other']
+        && request.resource.data.status == 'pending' && validFreshClientTime(request.resource.data.createdAt);
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
+      allow delete: if false;
     }
   }
 }

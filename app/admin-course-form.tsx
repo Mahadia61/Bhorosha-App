@@ -5,19 +5,22 @@ import { Feather } from '@expo/vector-icons'
 import { Button, Card, Empty, Field } from '@/components/ui'
 import { services } from '@/lib/services'
 import { useApp } from '@/providers/AppProvider'
-import type { Course, Profile } from '@/lib/types'
+import { academicLevels, academicTerms, courseTypes } from '@/lib/academic'
+import type { AcademicLevel, AcademicTerm, Course, CourseType, Profile } from '@/lib/types'
 
 type CourseForm = {
   code: string
   title: string
   credits: string
-  semester: string
+  level: AcademicLevel | null
+  term: AcademicTerm | null
+  courseType: CourseType | null
   department: string
   teacherIds: string[]
   tags: string
 }
 
-const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', semester: '', department: '', teacherIds: [], tags: '' })
+const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', level: null, term: null, courseType: null, department: '', teacherIds: [], tags: '' })
 
 export default function AdminCourseForm() {
   const { profile } = useApp()
@@ -37,7 +40,7 @@ export default function AdminCourseForm() {
         courseId ? services.course(courseId) : Promise.resolve<Course | null>(null),
         services.adminUsers(),
       ])
-      setTeachers(users.filter(user => user.role === 'teacher'))
+      setTeachers(users.filter(user => user.role === 'teacher' && user.active === true && user.emailVerified === true))
       if (courseId && !course) {
         setError('This course no longer exists.')
         return
@@ -47,7 +50,9 @@ export default function AdminCourseForm() {
           code: course.code,
           title: course.title,
           credits: String(course.credits),
-          semester: course.semester,
+          level: course.level,
+          term: course.term,
+          courseType: course.courseType,
           department: course.department,
           teacherIds: course.teacherIds,
           tags: course.tags.join(', '),
@@ -65,7 +70,7 @@ export default function AdminCourseForm() {
   if (!profile) return <Redirect href="/welcome" />
   if (profile.role !== 'admin') return <Redirect href="/" />
 
-  const setValue = (key: keyof CourseForm, value: string) => setForm(current => ({ ...current, [key]: value }))
+  const setValue = <K extends keyof CourseForm>(key: K, value: CourseForm[K]) => setForm(current => ({ ...current, [key]: value }))
   const toggleTeacher = (teacherId: string) => setForm(current => ({
     ...current,
     teacherIds: current.teacherIds.includes(teacherId)
@@ -76,8 +81,8 @@ export default function AdminCourseForm() {
   const save = async () => {
     const selectedTeachers = teachers.filter(teacher => form.teacherIds.includes(teacher.id))
     const credits = Number(form.credits)
-    if (!form.code.trim() || !form.title.trim() || !form.department.trim() || !form.semester.trim()) {
-      Alert.alert('Complete course details', 'Code, title, department, and semester are required.')
+    if (!form.code.trim() || !form.title.trim() || !form.department.trim() || !form.level || !form.term || !form.courseType) {
+      Alert.alert('Complete course details', 'Code, title, department, CUET level, term, and course type are required.')
       return
     }
     if (!Number.isFinite(credits) || credits <= 0) {
@@ -93,7 +98,9 @@ export default function AdminCourseForm() {
       code: form.code,
       title: form.title,
       credits,
-      semester: form.semester,
+      level: form.level,
+      term: form.term,
+      courseType: form.courseType,
       department: form.department.trim().toUpperCase(),
       teacherIds: selectedTeachers.map(teacher => teacher.id),
       teacherNames: selectedTeachers.map(teacher => teacher.name),
@@ -127,8 +134,10 @@ export default function AdminCourseForm() {
               <Field label="Course code" value={form.code} onChangeText={value => setValue('code', value.toUpperCase())} placeholder="CSE 405" autoCapitalize="characters" />
               <Field label="Course title" value={form.title} onChangeText={value => setValue('title', value)} placeholder="Mobile Application Development" />
               <Field label="Credits" value={form.credits} onChangeText={value => setValue('credits', value)} placeholder="e.g. 3" keyboardType="numeric" />
-              <Field label="Semester" value={form.semester} onChangeText={value => setValue('semester', value)} placeholder="Level 3, Term 1" />
               <Field label="Department" value={form.department} onChangeText={value => setValue('department', value.toUpperCase())} placeholder="CSE" autoCapitalize="characters" />
+              <ChoiceRow label="CUET level" values={academicLevels} value={form.level} onChange={value => setValue('level', value)} format={value => `Level ${value}`} />
+              <ChoiceRow label="CUET term" values={academicTerms} value={form.term} onChange={value => setValue('term', value)} format={value => `Term ${value}`} />
+              <ChoiceRow label="Course type" values={courseTypes} value={form.courseType} onChange={value => setValue('courseType', value)} />
               <Field label="Tags (optional, comma separated)" value={form.tags} onChangeText={value => setValue('tags', value)} placeholder="mobile, frontend, android" />
 
               <Text className="mb-2 text-sm font-semibold text-ink dark:text-white">Assign teachers</Text>
@@ -136,7 +145,7 @@ export default function AdminCourseForm() {
               {teachers.length ? teachers.map(teacher => {
                 const selected = form.teacherIds.includes(teacher.id)
                 return <Pressable key={teacher.id} onPress={() => toggleTeacher(teacher.id)} className={`mb-2 flex-row items-center justify-between rounded-xl border p-3 ${selected ? 'border-brand bg-blue-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'}`}>
-                  <View className="flex-1"><Text className="font-medium text-ink dark:text-white">{teacher.name}</Text><Text className="mt-1 text-xs text-muted">{teacher.designation ? `${teacher.designation} · ` : ''}{teacher.department}{teacher.active === false ? ' · Suspended' : ''}</Text></View>
+                  <View className="flex-1"><Text className="font-medium text-ink dark:text-white">{teacher.name}</Text><Text className="mt-1 text-xs text-muted">{teacher.designation ? `${teacher.designation} · ` : ''}{teacher.department}</Text></View>
                   <Feather name={selected ? 'check-circle' : 'circle'} size={20} color={selected ? '#4F7EF7' : '#94A3B8'} />
                 </Pressable>
               }) : <Empty title="No teachers available" body="Create or activate a teacher account from Members before assigning a course." />}
@@ -144,4 +153,8 @@ export default function AdminCourseForm() {
             </Card>}
     </ScrollView>
   </SafeAreaView>
+}
+
+function ChoiceRow<T extends string>({ label, values, value, onChange, format = item => item }: { label: string; values: T[]; value: T | null; onChange: (value: T) => void; format?: (value: T) => string }) {
+  return <View className="mb-4"><Text className="mb-2 text-sm font-medium text-ink dark:text-slate-100">{label}</Text><View className="flex-row flex-wrap gap-2">{values.map(item => <Pressable key={item} onPress={() => onChange(item)} className={`rounded-xl border px-3 py-2 ${value === item ? 'border-brand bg-blue-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'}`}><Text className={`text-xs font-semibold ${value === item ? 'text-brand' : 'text-muted'}`}>{format(item)}</Text></Pressable>)}</View></View>
 }

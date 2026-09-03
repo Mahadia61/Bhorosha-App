@@ -1,159 +1,102 @@
 # Bhorosha App
 
-> A privacy-first course and teacher feedback platform for the CUET community.
+Bhorosha is a privacy-first CUET course and teacher feedback app. Students can review courses and teachers, ask course questions, and follow their activity. Teachers see assigned-course feedback and answer questions. Administrators manage catalogue data, members, and moderation.
 
-Bhorosha helps students make better academic decisions through structured, constructive feedback on courses and teachers. Reviews can be submitted anonymously, while teachers receive useful feedback without seeing students’ identities.
-
-This repository contains the mobile-first frontend built with Expo and React Native. It also runs in a browser through Expo Web.
+This release uses the **Firebase Spark plan** for Firebase Authentication and Cloud Firestore. It contains no seeded accounts, demo credentials, local mock records, or Firebase Cloud Functions dependency.
 
 ## Features
 
-- Three isolated role-specific bottom navigations: Student, Teacher, and Admin
-- CUET-style sign-up and sign-in flows
-- Browse and search courses and teachers
-- Detailed multi-criteria course ratings
-- Anonymous course and teacher reviews
-- Course-specific anonymous Q&A
-- Many-to-many course assignment: one course can have several teachers and a teacher can teach several courses
-- Teacher dashboard, assigned-course feedback feed, and response workflow
-- Student-only review/question submission, teacher-only answer workflow, and admin-only platform moderation
-- Bangla and English community-language masking before reviews, questions, or answers are saved
-- AI review-summary entry points with a safe backend endpoint contract and local-development fallback
-- Student activity history and profile settings
-- Admin console for managing the local course catalogue
-- Light/dark appearance support
-- Responsive native mobile and web layouts
-- Local demo mode for reviewing the complete frontend without Firebase
+- Separate student, teacher, and admin navigation and permissions
+- CUET email sign-up, sign-in, password reset, and protected routes
+- Course catalogue with search, tags, many-to-many teacher assignment, and details
+- Anonymous course/teacher reviews with structured ratings
+- Anonymous course Q&A; students and assigned teachers can answer
+- Private teacher-response notifications in the student activity feed
+- Bangla and English disrespectful-word masking before a contribution is saved
+- Teacher feedback dashboard and profile settings
+- Admin overview, course management, members, moderation, and analytics
+- Light/dark mode, loading, empty, and error states
+- Firestore rules that keep author identity in private user mirrors—not public feedback documents—and restrict teachers to assigned-course feedback
+- Student course guides, report queue, teacher responses to reviews, optional AI summaries, and identity-safe account warnings
 
-## Tech stack
+## Architecture
 
-- React Native + Expo SDK 54
-- Expo Router
-- TypeScript
-- NativeWind / Tailwind CSS
-- Expo Vector Icons (Feather)
-- Firebase Authentication and Cloud Firestore support
-- AsyncStorage for local demo data
+```text
+Expo mobile app ── Firebase Auth + Firestore (Spark)
+       │
+       └── optional separate Node backend ── external image host / AI provider / identity-safe account warnings
+```
 
-## Getting started
+The app writes privacy-safe public documents and matching private user mirrors in Firestore batches. Firestore rules require both documents, validate role/department constraints, and prevent clients from reading another member’s private mirror.
 
-### Prerequisites
+Firebase Storage and Firebase Cloud Functions are intentionally not used because both require the Blaze plan. The optional `backend/` service handles profile images, review summaries, and identity-safe warnings outside Firebase.
 
-- Node.js 18 or later
-- npm
-- Expo Go on Android/iOS, an emulator, or a modern web browser
+## Prerequisites
 
-### Installation
+- Node.js 20 or later
+- Expo Go, Android emulator, or a web browser
+- Firebase project on the Spark plan with Email/Password Authentication and Firestore enabled
+- Optional: a separately hosted Node backend plus a free Cloudinary account for teacher profile images
+
+## Setup
 
 ```bash
 git clone https://github.com/Mahadia61/Bhorosha-App.git
 cd Bhorosha-App
-npm install --legacy-peer-deps
+npm install
+copy .env.example .env
 ```
 
-### Run the app
+Fill in your Firebase Web App values in `.env`. Then deploy the Firestore policy and indexes:
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase use --add
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+Detailed Firebase and backend setup is in [FIREBASE_SETUP.md](./FIREBASE_SETUP.md). The collection model is documented in [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md), and the optional backend contract is in [API.md](./API.md).
+
+## Run
 
 ```bash
 npm start -- --clear
 ```
 
-From the Expo terminal:
+- Press `w` for web.
+- Scan the Expo QR code with Expo Go for Android/iOS.
+- If the phone cannot reach Metro, run `npx expo start --tunnel --clear`.
 
-- Press `w` to run on the web.
-- Scan the displayed QR code with Expo Go to run on a physical device.
-- Press `a` to open Android when an emulator is available.
-
-If your phone cannot reach the local development server, use Expo tunnel mode:
+## Separate backend (optional photos, summaries, and account warnings)
 
 ```bash
-npx expo start --tunnel --clear
-```
-
-## Demo mode
-
-Firebase is optional while reviewing the frontend. Without a `.env` file, the app uses locally stored demo data:
-
-| Account | Email | What you can test |
-| --- | --- | --- |
-| Student | `u123456@student.cuet.ac.bd` | `student@123` | Courses, reviews, teacher profiles, Q&A, activity |
-| Teacher | `u1001@teacher.cuet.ac.bd` | `teacher@123` | Dashboard, student feedback, and answering course questions |
-| Admin | `admin@gmail.com` | `admin@123` | Local user list and course catalogue management |
-
-You can also create new student or teacher accounts from the sign-up screen using a matching CUET email format.
-
-### Role navigation
-
-| Role | Bottom navigation | What the role can do |
-| --- | --- | --- |
-| Student | Home, Courses, Teachers, Activity, Profile | Submit anonymous course/teacher reviews, ask course questions, and respond constructively to course questions. |
-| Teacher | Dashboard, My courses, Feedback, Q&A, Profile | See feedback only for assigned courses, answer questions, and maintain a teaching profile. |
-| Admin | Overview, Courses, Members, Moderation, Analytics | Manage courses and multi-teacher assignments, member access, moderation, and platform metrics. |
-
-Teachers do not have any write or delete action for student reviews. Admin accounts are provisioned separately; local demo mode includes one for reviewing the frontend.
-
-## Firebase setup
-
-To use Firebase instead of local demo mode, copy the example environment file:
-
-```bash
+cd backend
+npm install
 copy .env.example .env
+npm run dev
 ```
 
-Fill in all `EXPO_PUBLIC_FIREBASE_*` values from your Firebase project, then:
+Set `EXPO_PUBLIC_BACKEND_URL` in the app’s `.env` to the backend’s reachable HTTPS URL, then restart Expo. The backend verifies a Firebase ID token before accepting a request. It requires a server-only Firebase service account; do not commit that key or add it to an Expo environment variable.
 
-1. Enable **Email/Password** in Firebase Authentication.
-2. Create the Firestore collections below.
-3. Deploy the included [Firestore security rules](./firestore.rules) before production.
-4. If teachers will upload profile pictures, deploy the included [Storage rules](./storage.rules).
-5. To enable generated review summaries, implement the HTTPS contract in [AI_SUMMARY_SETUP.md](./AI_SUMMARY_SETUP.md). Keep the AI provider key on that server or Cloud Function.
+Without the separate backend:
 
-### Firestore collections
+- teacher image upload reports a clear configuration message;
+- review summaries use a transparent local aggregate, with no review data sent to any third party.
+- administrators can keep or remove reported content, but cannot issue an account warning without exposing anonymous ownership.
 
-| Collection | Purpose |
-| --- | --- |
-| `users` | Profile metadata only; Firebase Auth handles passwords |
-| `courses` | Admin-managed course catalogue and teacher assignment |
-| `reviews` | Course reviews, rating criteria, and anonymity preference |
-| `professorReviews` | Teacher reviews, rating, and anonymity preference |
-| `courseQuestions` | Anonymous course questions and teacher responses |
-
-## Useful commands
+## Quality checks
 
 ```bash
-# Start Expo
-npm start
-
-# Run the web version
-npm run web
-
-# Run on Android
-npm run android
-
-# Run on iOS
-npm run ios
-
-# Check TypeScript
 npm run typecheck
+npm --prefix backend run check
+npx expo export --platform web
+npx expo export --platform android
 ```
-
-## Project structure
-
-```text
-app/                 Expo Router screens and route layouts
-components/          Reusable UI components
-lib/                 Types, Firebase configuration, services, demo data
-providers/           Shared application state
-firestore.rules      Firestore authorization rules
-```
-
 
 ## Security notes
 
-- Never commit `.env` files or Firebase secrets.
-- Authentication passwords are not stored in Firestore.
-- Reviews store the author identifier only for authorization; anonymous reviews do not expose the author in the UI.
-- Review and profile access should always use the supplied Firestore rules in a production deployment.
-
-## License
-
-This project is intended for academic and development use. Add a license file before distributing it publicly.
+- Firebase Auth owns passwords; Firestore never stores them.
+- Admin accounts are provisioned manually with the Firebase Console/Admin SDK; app users cannot create an admin profile.
+- Do not expose `FIREBASE_SERVICE_ACCOUNT_JSON`, Cloudinary credentials, or an AI provider key in `.env` for Expo.
+- Before production, create a strong administrator password and configure Firebase’s authorized domains.

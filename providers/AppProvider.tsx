@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import { useColorScheme } from 'react-native'
 import { colorScheme } from 'nativewind'
-import type { Profile, Role } from '@/lib/types'
+import type { AcademicLevel, AcademicTerm, Profile, Role } from '@/lib/types'
 import { services } from '@/lib/services'
 
-type AppContextValue = { profile: Profile | null; ready: boolean; isDark: boolean; signIn: (email: string, password: string) => Promise<Profile>; signUp: (name: string, email: string, password: string, role: Role, department: string, designation?: string) => Promise<Profile>; requestPasswordReset: (email: string) => Promise<void>; changePassword: (currentPassword: string, nextPassword: string) => Promise<void>; signOut: () => Promise<void>; updateProfile: (next: Profile) => Promise<void> }
+type StudentDetails = { batch: string; studentId: string; currentLevel: AcademicLevel; currentTerm: AcademicTerm }
+type AppContextValue = { profile: Profile | null; ready: boolean; isDark: boolean; signIn: (email: string, password: string) => Promise<Profile>; signUp: (name: string, email: string, password: string, role: Role, department: string, designation?: string, studentDetails?: StudentDetails) => Promise<Profile>; resendEmailVerification: () => Promise<void>; confirmEmailVerification: () => Promise<Profile>; requestPasswordReset: (email: string) => Promise<void>; changePassword: (currentPassword: string, nextPassword: string) => Promise<void>; signOut: () => Promise<void>; updateProfile: (next: Profile) => Promise<void> }
 const AppContext = createContext<AppContextValue | null>(null)
 export function AppProvider({ children }: PropsWithChildren) {
   const systemTheme = useColorScheme(); const [profile, setProfile] = useState<Profile | null>(null); const [ready, setReady] = useState(false)
@@ -18,7 +19,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   const value = useMemo<AppContextValue>(() => ({
     profile, ready, isDark: profile?.darkMode ?? systemTheme === 'dark',
     signIn: async (email, password) => { const next = await services.signIn(email, password); setProfile(next); return next },
-    signUp: async (name, email, password, role, department, designation) => { const next = await services.signUp(name, email, password, role, department, designation); setProfile(next); return next },
+    signUp: async (name, email, password, role, department, designation, studentDetails) => { const next = await services.signUp(name, email, password, role, department, designation, studentDetails); setProfile(next); return next },
+    resendEmailVerification: async () => services.resendEmailVerification(),
+    confirmEmailVerification: async () => { const next = await services.confirmEmailVerification(); setProfile(next); return next },
     requestPasswordReset: async email => services.requestPasswordReset(email),
     changePassword: async (currentPassword, nextPassword) => services.changePassword(currentPassword, nextPassword),
     signOut: async () => { await services.signOut(); setProfile(null) },

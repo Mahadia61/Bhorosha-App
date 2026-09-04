@@ -23,6 +23,8 @@ backend/dist/
 .web-*-check/
 .android-spark-check/
 .web-spark-check/
+.android-spark-check-*/
+.web-spark-check-*/
 
 # Review files
 .review-*/

@@ -11,7 +11,7 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && userProfile().data.active == true
-        && userProfile().data.emailVerified == true;
+        && (userProfile().data.role == 'teacher' || userProfile().data.emailVerified == true);
     }
     function isStudent() { return activeUser() && userProfile().data.role == 'student'; }
     function isTeacher() { return activeUser() && userProfile().data.role == 'teacher'; }
@@ -89,17 +89,19 @@ service cloud.firestore {
         && validText(request.resource.data.name, 100)
         && validText(request.resource.data.department, 24)
         && validFreshClientTime(request.resource.data.updatedAt)
-        && request.resource.data.active == false && request.resource.data.emailVerified == false
         && request.resource.data.darkMode == false
-        && ((request.resource.data.role == 'student' && validStudentEmail()
+        && ((request.resource.data.role == 'student' && request.resource.data.active == false
+              && request.resource.data.emailVerified == false && validStudentEmail()
               && validText(request.resource.data.batch, 30) && validText(request.resource.data.studentId, 30)
               && request.resource.data.currentLevel in ['1', '2', '3', '4']
               && request.resource.data.currentTerm in ['1', '2'])
-          || (request.resource.data.role == 'teacher' && validTeacherEmail()
+          || (request.resource.data.role == 'teacher' && request.resource.data.active == true
+              && request.resource.data.emailVerified == true && validTeacherEmail()
               && validDesignation(request.resource.data.designation)));
     }
     function pendingProfileVerification(userId) {
       return own(userId)
+        && resource.data.role == 'student'
         && resource.data.emailVerified != true
         && request.auth.token.email_verified == true
         && request.resource.data.role == resource.data.role
@@ -305,6 +307,16 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /departments/{departmentId} {
+      allow read: if activeUser();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'updatedAt'])
+        && request.resource.data.name == departmentId
+        && validText(request.resource.data.name, 24)
+        && validFreshClientTime(request.resource.data.updatedAt);
+      allow delete: if isAdmin();
+    }
+
     match /courseReviews/{reviewId} {
       allow read: if canReadCourseContent(resource.data.courseId);
       allow create: if isStudent() && validPublicCourseReview()
@@ -395,6 +407,25 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /notifications/{notificationId} {
+      allow read: if isTeacher() && resource.data.recipientId == request.auth.uid;
+      allow create: if isStudent()
+        && request.resource.data.keys().hasOnly(['recipientId', 'questionId', 'courseId', 'title', 'body', 'read', 'createdAt'])
+        && request.resource.data.recipientId is string
+        && request.resource.data.questionId is string
+        && request.resource.data.courseId is string
+        && request.resource.data.read == false
+        && validText(request.resource.data.title, 140)
+        && validText(request.resource.data.body, 180)
+        && validFreshClientTime(request.resource.data.createdAt)
+        && studentCanAccessCourse(request.resource.data.courseId)
+        && request.resource.data.recipientId in course(request.resource.data.courseId).data.teacherIds;
+      allow update: if isTeacher() && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if false;
+    }
+
     match /courseGuides/{guideId} {
       allow read: if canReadCourseContent(resource.data.courseId);
       allow create: if isStudent() && studentCanAccessCourse(request.resource.data.courseId)
@@ -415,6 +446,20 @@ service cloud.firestore {
         && request.resource.data.reason in ['Offensive language', 'Personal attack', 'Fake information', 'Spam', 'Other']
         && request.resource.data.status == 'pending' && validFreshClientTime(request.resource.data.createdAt);
       allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
+      allow delete: if false;
+    }
+
+    match /adminNotifications/{notificationId} {
+      allow read: if isAdmin();
+      allow create: if activeUser() && !isAdmin()
+        && request.resource.data.keys().hasOnly(['reportId', 'title', 'body', 'read', 'createdAt'])
+        && request.resource.data.reportId == notificationId
+        && request.resource.data.read == false
+        && validText(request.resource.data.title, 140)
+        && validText(request.resource.data.body, 180)
+        && validFreshClientTime(request.resource.data.createdAt);
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
       allow delete: if false;
     }
   }

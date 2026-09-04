@@ -18,7 +18,7 @@ export default function SignIn() {
     setLoading(true)
     try {
       const signedIn = await signIn(email, password)
-      router.replace((signedIn.emailVerified === false ? '/verify-email' : signedIn.role === 'admin' ? '/(admin-tabs)/overview' : signedIn.role === 'teacher' ? '/(teacher-tabs)/dashboard' : '/(student-tabs)/home') as Href)
+      router.replace((signedIn.role === 'student' && signedIn.emailVerified === false ? '/verify-email' : signedIn.role === 'admin' ? '/(admin-tabs)/overview' : signedIn.role === 'teacher' ? '/(teacher-tabs)/dashboard' : '/(student-tabs)/home') as Href)
     } catch (reason) {
       Alert.alert('Could not sign in', reason instanceof Error ? reason.message : 'Please try again.')
     } finally {

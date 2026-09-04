@@ -27,7 +27,7 @@ const profileFrom = (id: string, data: Record<string, unknown>): Profile => ({
   active: data.active !== false,
   // Administrators are provisioned through trusted Firebase tooling, not the
   // public sign-up route. Their profile record carries this flag at bootstrap.
-  emailVerified: data.role === 'admin' ? true : data.emailVerified === true,
+  emailVerified: data.role === 'admin' || data.role === 'teacher' ? true : data.emailVerified === true,
   batch: data.batch ? String(data.batch) : undefined,
   studentId: data.studentId ? String(data.studentId) : undefined,
   currentLevel: ['1', '2', '3', '4'].includes(String(data.currentLevel)) ? String(data.currentLevel) as AcademicLevel : undefined,
@@ -148,15 +148,16 @@ export const services = {
     if (role === 'student' && (!studentDetails?.batch.trim() || !studentDetails.studentId.trim() || !studentDetails.currentLevel || !studentDetails.currentTerm)) throw new Error('Add your batch, student ID, current level, and current term.')
 
     const credential = await createUserWithEmailAndPassword(firebaseAuth, normalized, password)
-    const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: false, emailVerified: false, ...(role === 'student' && studentDetails ? { batch: studentDetails.batch.trim(), studentId: studentDetails.studentId.trim(), currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
+    const requiresEmailVerification = role === 'student'
+    const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: !requiresEmailVerification, emailVerified: !requiresEmailVerification, ...(role === 'student' && studentDetails ? { batch: studentDetails.batch.trim(), studentId: studentDetails.studentId.trim(), currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
     const profileRecord = {
       name: profile.name,
       email: profile.email,
       role: profile.role,
       department: profile.department,
       darkMode: false,
-      active: false,
-      emailVerified: false,
+      active: profile.active,
+      emailVerified: profile.emailVerified,
       updatedAt: Date.now(),
       ...(profile.designation ? { designation: profile.designation } : {}),
       ...(profile.batch ? { batch: profile.batch } : {}),
@@ -175,7 +176,7 @@ export const services = {
       await firebaseSignOut(firebaseAuth).catch(() => undefined)
       throw reason
     }
-    await sendEmailVerification(credential.user)
+    if (requiresEmailVerification) await sendEmailVerification(credential.user)
     return profile
   },
 
@@ -194,6 +195,8 @@ export const services = {
   async resendEmailVerification() {
     const { auth: firebaseAuth } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in again before requesting verification.')
+    const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
+    if (profile?.role !== 'student') throw new Error('Teacher accounts do not require email verification.')
     await sendEmailVerification(firebaseAuth.currentUser)
   },
 
@@ -424,10 +427,14 @@ export const services = {
     const notificationKey = doc(collection(firestore, 'courseQuestionNotifications')).id
     const createdAt = Date.now()
     const question = { courseId: input.courseId, category: input.category, text, anonymous: true, notificationKey, createdAt }
+    const course = await getDoc(doc(firestore, 'courses', input.courseId))
+    if (!course.exists()) throw new Error('This course no longer exists.')
+    const teacherIds: string[] = Array.isArray(course.data().teacherIds) ? course.data().teacherIds.map(String) : []
     const batch = writeBatch(firestore)
     batch.set(questionRef, question)
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'questions', questionRef.id), { id: questionRef.id, ...question })
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'activity', `question-${questionRef.id}`), { kind: 'question', targetId: questionRef.id, courseId: input.courseId, text: `[${input.category}] ${text}`, createdAt })
+    teacherIds.forEach(teacherId => batch.set(doc(firestore, 'notifications', `${teacherId}-${questionRef.id}`), { recipientId: teacherId, questionId: questionRef.id, courseId: input.courseId, title: 'New question in your course', body: text.slice(0, 180), read: false, createdAt }))
     await batch.commit()
   },
   async teacherQuestions(teacherId: string): Promise<CourseQuestion[]> {
@@ -458,12 +465,28 @@ export const services = {
     if (!firebaseAuth.currentUser) throw new Error('Sign in before reporting content.')
     const reportRef = doc(collection(firestore, 'reports'))
     if (contentType === 'answer' && !questionId) throw new Error('The question context is required to report an answer.')
-    await setDoc(reportRef, { contentType, contentId, reportedBy: firebaseAuth.currentUser.uid, reason, status: 'pending', createdAt: Date.now(), ...(questionId ? { questionId } : {}) })
+    const createdAt = Date.now()
+    await setDoc(reportRef, { contentType, contentId, reportedBy: firebaseAuth.currentUser.uid, reason, status: 'pending', createdAt, ...(questionId ? { questionId } : {}) })
+    await setDoc(doc(firestore, 'adminNotifications', reportRef.id), { reportId: reportRef.id, title: 'New reported content', body: `${reason} report requires review.`, read: false, createdAt })
   },
   async reports(): Promise<Report[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'reports'), where('status', '==', 'pending'), orderBy('createdAt', 'desc')))
     return snapshot.docs.map(item => ({ id: item.id, contentType: item.data().contentType as ContentType, contentId: String(item.data().contentId ?? ''), ...(typeof item.data().questionId === 'string' ? { questionId: item.data().questionId } : {}), reason: item.data().reason as ReportReason, status: item.data().status as Report['status'], createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  async adminNotifications(): Promise<AppNotification[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'adminNotifications'), orderBy('createdAt', 'desc')))
+    return snapshot.docs.map(item => ({ id: item.id, title: String(item.data().title ?? 'Admin notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  async teacherNotifications(userId: string): Promise<AppNotification[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'notifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')))
+    return snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  async markTeacherNotificationRead(notificationId: string) {
+    const { db: firestore } = requireFirebase()
+    await setDoc(doc(firestore, 'notifications', notificationId), { read: true }, { merge: true })
   },
   async updateReportStatus(reportId: string, status: Report['status']) {
     const { db: firestore } = requireFirebase()
@@ -542,6 +565,21 @@ export const services = {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(collection(firestore, 'users'))
     return snapshot.docs.map(item => profileFrom(item.id, item.data()))
+  },
+  async departments(): Promise<string[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(collection(firestore, 'departments'))
+    return snapshot.docs.map(item => String(item.data().name ?? item.id)).sort()
+  },
+  async addDepartment(name: string) {
+    const { db: firestore } = requireFirebase()
+    const normalized = name.trim().toUpperCase()
+    if (!normalized || !/^[A-Z0-9-]{2,24}$/.test(normalized)) throw new Error('Use a valid department code.')
+    await setDoc(doc(firestore, 'departments', normalized), { name: normalized, updatedAt: Date.now() })
+  },
+  async deleteDepartment(name: string) {
+    const { db: firestore } = requireFirebase()
+    await deleteDoc(doc(firestore, 'departments', name))
   },
   async updateUserStatus(user: Profile, active: boolean) {
     const { db: firestore } = requireFirebase()

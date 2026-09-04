@@ -12,9 +12,10 @@ export default function Home() {
   const { profile } = useApp()
   const [courses, setCourses] = useState<Course[]>([])
   const [ratingSummary, setRatingSummary] = useState<Record<string, { average: number; count: number }>>({})
+  const [notifications, setNotifications] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const load = async () => { setRefreshing(true); setError(''); try { const nextCourses = await services.courses(); setCourses(nextCourses); if (profile?.role === 'student') { const departmentCourses = nextCourses.filter(course => course.department === profile.department); const summaries = await Promise.all(departmentCourses.map(async course => { const reviews = await services.reviews(course.id); const average = reviews.length ? reviews.reduce((total, review) => total + Object.values(review.ratings).reduce((sum, value) => sum + value, 0) / Object.values(review.ratings).length, 0) / reviews.length : 0; return [course.id, { average, count: reviews.length }] as const })); setRatingSummary(Object.fromEntries(summaries)) } } catch (reason) { setCourses([]); setRatingSummary({}); setError(reason instanceof Error ? reason.message : 'Unable to load your dashboard.') } finally { setRefreshing(false) } }
+  const load = async () => { setRefreshing(true); setError(''); try { const nextCourses = await services.courses(); setCourses(nextCourses); if (profile?.role === 'teacher') setNotifications((await services.teacherNotifications(profile.id)).filter(item => !item.read).length); if (profile?.role === 'student') { const departmentCourses = nextCourses.filter(course => course.department === profile.department); const summaries = await Promise.all(departmentCourses.map(async course => { const reviews = await services.reviews(course.id); const average = reviews.length ? reviews.reduce((total, review) => total + Object.values(review.ratings).reduce((sum, value) => sum + value, 0) / Object.values(review.ratings).length, 0) / reviews.length : 0; return [course.id, { average, count: reviews.length }] as const })); setRatingSummary(Object.fromEntries(summaries)) } } catch (reason) { setCourses([]); setRatingSummary({}); setError(reason instanceof Error ? reason.message : 'Unable to load your dashboard.') } finally { setRefreshing(false) } }
   useEffect(() => { void load() }, [profile?.role])
   const isTeacher = profile?.role === 'teacher'
   const visibleCourses = useMemo(() => {
@@ -24,6 +25,7 @@ export default function Home() {
 
   return <Screen><ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 32 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}>
     <Text className="mt-6 text-sm text-muted">{isTeacher ? 'Teacher dashboard' : 'Welcome back,'}</Text>
+    {isTeacher && notifications > 0 ? <Text onPress={() => router.push('/(teacher-tabs)/questions')} className="mt-2 self-start rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-brand dark:bg-slate-800">{notifications} new question notification{notifications === 1 ? '' : 's'}</Text> : null}
     <Text className="text-3xl font-bold text-ink dark:text-white">{profile?.name ?? 'CUET Member'}</Text>{!isTeacher && profile?.currentLevel && profile.currentTerm ? <Text className="mt-1 text-sm text-muted">{profile.department} · {academicLabel(profile.currentLevel, profile.currentTerm)}</Text> : null}
     <Card className="mt-6 border-blue-100 bg-blue-50 dark:border-slate-800 dark:bg-slate-900"><View className="flex-row gap-3">
       <View className="h-11 w-11 items-center justify-center rounded-xl bg-brand"><Feather name={isTeacher ? 'bar-chart-2' : 'shield'} size={21} color="white" /></View>

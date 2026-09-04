@@ -74,7 +74,7 @@ export type CourseGuide = { id: string; courseId: string; title: string; text: s
 export type ContentType = 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer'
 export type ReportReason = 'Offensive language' | 'Personal attack' | 'Fake information' | 'Spam' | 'Other'
 export type Report = { id: string; contentType: ContentType; contentId: string; questionId?: string; reason: ReportReason; status: 'pending' | 'kept' | 'removed' | 'warned'; createdAt: number }
-export type AppNotification = { id: string; questionId: string; courseId: string; title: string; body: string; read: boolean; createdAt: number }
+export type AppNotification = { id: string; questionId?: string; courseId?: string; title: string; body: string; read: boolean; createdAt: number }
 
 export type ActivityItem = {
   id: string

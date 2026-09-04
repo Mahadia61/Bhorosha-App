@@ -77,10 +77,13 @@ async function requireProfile(request: AuthenticatedRequest, response: Response,
     const decoded = await firebaseAuth.verifyIdToken(token)
     const snapshot = await firestore.collection('users').doc(decoded.uid).get()
     const data = snapshot.data()
-    if (!snapshot.exists || !data || data.active !== true || data.emailVerified !== true || !['student', 'teacher', 'admin'].includes(String(data.role))) {
+    const role = String(data?.role ?? '')
+    const validRole = role === 'student' || role === 'teacher' || role === 'admin'
+    const requiresVerifiedEmail = role === 'student'
+    if (!snapshot.exists || !data || data.active !== true || !validRole || (requiresVerifiedEmail && data.emailVerified !== true)) {
       return response.status(403).json({ error: 'This Bhorosha account is inactive or not configured.' })
     }
-    request.profile = { uid: decoded.uid, name: String(data.name ?? ''), department: String(data.department ?? ''), role: data.role as Role, active: true }
+    request.profile = { uid: decoded.uid, name: String(data.name ?? ''), department: String(data.department ?? ''), role: role as Role, active: true }
     return next()
   } catch {
     return response.status(401).json({ error: 'Your sign-in token is invalid or expired.' })

@@ -11,7 +11,7 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && userProfile().data.active == true
-        && userProfile().data.emailVerified == true;
+        && (userProfile().data.role == 'teacher' || userProfile().data.emailVerified == true);
     }
     function isStudent() { return activeUser() && userProfile().data.role == 'student'; }
     function isTeacher() { return activeUser() && userProfile().data.role == 'teacher'; }
@@ -89,17 +89,19 @@ service cloud.firestore {
         && validText(request.resource.data.name, 100)
         && validText(request.resource.data.department, 24)
         && validFreshClientTime(request.resource.data.updatedAt)
-        && request.resource.data.active == false && request.resource.data.emailVerified == false
         && request.resource.data.darkMode == false
-        && ((request.resource.data.role == 'student' && validStudentEmail()
+        && ((request.resource.data.role == 'student' && request.resource.data.active == false
+              && request.resource.data.emailVerified == false && validStudentEmail()
               && validText(request.resource.data.batch, 30) && validText(request.resource.data.studentId, 30)
               && request.resource.data.currentLevel in ['1', '2', '3', '4']
               && request.resource.data.currentTerm in ['1', '2'])
-          || (request.resource.data.role == 'teacher' && validTeacherEmail()
+          || (request.resource.data.role == 'teacher' && request.resource.data.active == true
+              && request.resource.data.emailVerified == true && validTeacherEmail()
               && validDesignation(request.resource.data.designation)));
     }
     function pendingProfileVerification(userId) {
       return own(userId)
+        && resource.data.role == 'student'
         && resource.data.emailVerified != true
         && request.auth.token.email_verified == true
         && request.resource.data.role == resource.data.role

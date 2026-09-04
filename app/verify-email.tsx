@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, SafeAreaView, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { Button, Card } from '@/components/ui'
@@ -8,6 +8,13 @@ export default function VerifyEmail() {
   const { profile, resendEmailVerification, confirmEmailVerification, signOut } = useApp()
   const [checking, setChecking] = useState(false)
   const [sending, setSending] = useState(false)
+  const isTeacher = profile?.role === 'teacher' || profile?.email.toLowerCase().endsWith('@teacher.cuet.ac.bd') === true
+
+  useEffect(() => {
+    if (isTeacher) router.replace('/(teacher-tabs)/dashboard')
+  }, [isTeacher])
+
+  if (isTeacher) return null
 
   const resend = async () => {
     setSending(true)

@@ -27,7 +27,7 @@ const profileFrom = (id: string, data: Record<string, unknown>): Profile => ({
   active: data.active !== false,
   // Administrators are provisioned through trusted Firebase tooling, not the
   // public sign-up route. Their profile record carries this flag at bootstrap.
-  emailVerified: data.role === 'admin' ? true : data.emailVerified === true,
+  emailVerified: data.role === 'admin' || data.role === 'teacher' ? true : data.emailVerified === true,
   batch: data.batch ? String(data.batch) : undefined,
   studentId: data.studentId ? String(data.studentId) : undefined,
   currentLevel: ['1', '2', '3', '4'].includes(String(data.currentLevel)) ? String(data.currentLevel) as AcademicLevel : undefined,
@@ -148,15 +148,16 @@ export const services = {
     if (role === 'student' && (!studentDetails?.batch.trim() || !studentDetails.studentId.trim() || !studentDetails.currentLevel || !studentDetails.currentTerm)) throw new Error('Add your batch, student ID, current level, and current term.')
 
     const credential = await createUserWithEmailAndPassword(firebaseAuth, normalized, password)
-    const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: false, emailVerified: false, ...(role === 'student' && studentDetails ? { batch: studentDetails.batch.trim(), studentId: studentDetails.studentId.trim(), currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
+    const requiresEmailVerification = role === 'student'
+    const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: !requiresEmailVerification, emailVerified: !requiresEmailVerification, ...(role === 'student' && studentDetails ? { batch: studentDetails.batch.trim(), studentId: studentDetails.studentId.trim(), currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
     const profileRecord = {
       name: profile.name,
       email: profile.email,
       role: profile.role,
       department: profile.department,
       darkMode: false,
-      active: false,
-      emailVerified: false,
+      active: profile.active,
+      emailVerified: profile.emailVerified,
       updatedAt: Date.now(),
       ...(profile.designation ? { designation: profile.designation } : {}),
       ...(profile.batch ? { batch: profile.batch } : {}),
@@ -175,7 +176,7 @@ export const services = {
       await firebaseSignOut(firebaseAuth).catch(() => undefined)
       throw reason
     }
-    await sendEmailVerification(credential.user)
+    if (requiresEmailVerification) await sendEmailVerification(credential.user)
     return profile
   },
 
@@ -194,6 +195,8 @@ export const services = {
   async resendEmailVerification() {
     const { auth: firebaseAuth } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in again before requesting verification.')
+    const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
+    if (profile?.role !== 'student') throw new Error('Teacher accounts do not require email verification.')
     await sendEmailVerification(firebaseAuth.currentUser)
   },
 

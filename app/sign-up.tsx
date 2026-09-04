@@ -26,8 +26,8 @@ export default function SignUp() {
     if (role === 'student' && (!batch.trim() || !studentId.trim())) return Alert.alert('Complete academic details', 'Batch and Student ID are required for students.')
     setLoading(true)
     try {
-      await signUp(name.trim(), email.trim().toLowerCase(), password, role, department.trim(), designation, role === 'student' ? { batch: batch.trim(), studentId: studentId.trim(), currentLevel, currentTerm } : undefined)
-      router.replace('/verify-email' as Href)
+      const created = await signUp(name.trim(), email.trim().toLowerCase(), password, role, department.trim(), designation, role === 'student' ? { batch: batch.trim(), studentId: studentId.trim(), currentLevel, currentTerm } : undefined)
+      router.replace((created.role === 'student' ? '/verify-email' : '/(teacher-tabs)/dashboard') as Href)
     } catch (reason) { Alert.alert('Could not create account', reason instanceof Error ? reason.message : 'Please try again.') }
     finally { setLoading(false) }
   }
@@ -37,7 +37,7 @@ export default function SignUp() {
     <View className="mt-6"><Field label="Full name" value={name} onChangeText={setName} placeholder="Your full name" autoCapitalize="words" /><Field label="CUET email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} placeholder={emailHint[role]} /><Field label="Department" autoCapitalize="characters" value={department} onChangeText={setDepartment} placeholder="CSE" />
       {role === 'student' ? <><Field label="Batch" value={batch} onChangeText={setBatch} placeholder="e.g. 2022" keyboardType="numeric" /><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. 2204001" keyboardType="numeric" /><OptionPicker label="Current level" options={academicLevels} value={currentLevel} onChange={setCurrentLevel} format={value => `Level ${value}`} /><OptionPicker label="Current term" options={academicTerms} value={currentTerm} onChange={setCurrentTerm} format={value => `Term ${value}`} /></> : <DesignationPicker value={designation} open={designationMenuOpen} onToggle={() => setDesignationMenuOpen(value => !value)} onChange={value => { setDesignation(value); setDesignationMenuOpen(false) }} />}
       <PasswordField label="Password" value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword(value => !value)} placeholder="At least 8 characters" /><PasswordField label="Re-enter password" value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmation} onToggle={() => setShowConfirmation(value => !value)} placeholder="Enter the same password again" /><Button loading={loading} onPress={submit}>Create {role} account</Button></View>
-    <Text className="mt-5 text-center text-xs leading-5 text-muted">You must verify your CUET email before accessing the dashboard.</Text><Text onPress={() => router.push('/sign-in')} className="mt-6 text-center text-sm font-semibold text-brand">Already have an account? Sign in</Text>
+    <Text className="mt-5 text-center text-xs leading-5 text-muted">Students must verify their CUET email before accessing the dashboard. Teachers can access the dashboard after creating an account.</Text><Text onPress={() => router.push('/sign-in')} className="mt-6 text-center text-sm font-semibold text-brand">Already have an account? Sign in</Text>
   </ScrollView></SafeAreaView>
 }
 

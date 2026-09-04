@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Alert, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native'
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { router, type Href } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Button, Field } from '@/components/ui'

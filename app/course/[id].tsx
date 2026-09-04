@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Pressable, SafeAreaView, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router'
 import { Button, Card, Empty, Stars } from '@/components/ui'
 import { defaultRatings, services } from '@/lib/services'

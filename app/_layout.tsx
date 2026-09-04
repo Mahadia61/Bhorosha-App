@@ -1,6 +1,7 @@
 import '../global.css'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AppProvider } from '@/providers/AppProvider'
 import { useApp } from '@/providers/AppProvider'
 
@@ -9,4 +10,4 @@ function AppShell() {
   return <><StatusBar style={isDark ? 'light' : 'dark'} /><Stack screenOptions={{ headerShown: false }} /></>
 }
 
-export default function RootLayout() { return <AppProvider><AppShell /></AppProvider> }
+export default function RootLayout() { return <SafeAreaProvider><AppProvider><AppShell /></AppProvider></SafeAreaProvider> }

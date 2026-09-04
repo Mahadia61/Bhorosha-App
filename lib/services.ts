@@ -611,27 +611,28 @@ export const services = {
   },
   async deleteCourse(courseId: string) {
     const { db: firestore } = requireFirebase()
-    const [reviews, questions, guides, notifications] = await Promise.all([
+    await deleteDoc(doc(firestore, 'courses', courseId))
+    const [reviews, questions, guides] = await Promise.all([
       getDocs(query(collection(firestore, 'courseReviews'), where('courseId', '==', courseId))),
       getDocs(query(collection(firestore, 'courseQuestions'), where('courseId', '==', courseId))),
       getDocs(query(collection(firestore, 'courseGuides'), where('courseId', '==', courseId))),
-      getDocs(query(collection(firestore, 'courseQuestionNotifications'), where('courseId', '==', courseId))),
     ])
     const [answerLists, responseLists] = await Promise.all([
       Promise.all(questions.docs.map(question => getDocs(collection(firestore, 'courseQuestions', question.id, 'answers')))),
       Promise.all(reviews.docs.map(review => getDocs(collection(firestore, 'courseReviews', review.id, 'teacherResponses')))),
     ])
-    const operationCount = 1 + reviews.size + questions.size + guides.size + notifications.size + answerLists.reduce((sum, answers) => sum + answers.size, 0) + responseLists.reduce((sum, responses) => sum + responses.size, 0)
-    if (operationCount > 450) throw new Error('This course has too much community content for a mobile deletion. Use an administrative data migration.')
-    const batch = writeBatch(firestore)
-    batch.delete(doc(firestore, 'courses', courseId))
-    reviews.docs.forEach(review => batch.delete(review.ref))
-    questions.docs.forEach(question => batch.delete(question.ref))
-    guides.docs.forEach(guide => batch.delete(guide.ref))
-    notifications.docs.forEach(notification => batch.delete(notification.ref))
-    answerLists.forEach(answers => answers.docs.forEach(answer => batch.delete(answer.ref)))
-    responseLists.forEach(responses => responses.docs.forEach(response => batch.delete(response.ref)))
-    await batch.commit()
+    const refs = [
+      ...reviews.docs.map(review => review.ref),
+      ...questions.docs.map(question => question.ref),
+      ...guides.docs.map(guide => guide.ref),
+      ...answerLists.flatMap(answers => answers.docs.map(answer => answer.ref)),
+      ...responseLists.flatMap(responses => responses.docs.map(response => response.ref)),
+    ]
+    for (let start = 0; start < refs.length; start += 450) {
+      const batch = writeBatch(firestore)
+      refs.slice(start, start + 450).forEach(reference => batch.delete(reference))
+      await batch.commit()
+    }
   },
 }
 

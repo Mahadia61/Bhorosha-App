@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, FlatList, SafeAreaView, Text, TextInput, View } from 'react-native'
+import { Alert, FlatList, Text, TextInput, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Redirect, router } from 'expo-router'
 import { Button, Card, Empty, Stars } from '@/components/ui'
 import { services } from '@/lib/services'

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, SafeAreaView, Text, View } from 'react-native'
+import { Alert, Text, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
 import { Button, Card } from '@/components/ui'
 import { useApp } from '@/providers/AppProvider'

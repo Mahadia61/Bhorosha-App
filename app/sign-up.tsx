@@ -16,20 +16,26 @@ export default function SignUp() {
   const { signUp } = useApp()
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false); const [showConfirmation, setShowConfirmation] = useState(false); const [role, setRole] = useState<SignUpRole>('student'); const [department, setDepartment] = useState('')
-  const [designation, setDesignation] = useState(''); const [designationMenuOpen, setDesignationMenuOpen] = useState(false); const [batch, setBatch] = useState(''); const [studentId, setStudentId] = useState(''); const [currentLevel, setCurrentLevel] = useState<AcademicLevel>('1'); const [currentTerm, setCurrentTerm] = useState<AcademicTerm>('1'); const [loading, setLoading] = useState(false)
+  const [designation, setDesignation] = useState(''); const [designationMenuOpen, setDesignationMenuOpen] = useState(false); const [batch, setBatch] = useState(''); const [studentId, setStudentId] = useState(''); const [currentLevel, setCurrentLevel] = useState<AcademicLevel>('1'); const [currentTerm, setCurrentTerm] = useState<AcademicTerm>('1'); const [loading, setLoading] = useState(false); const [submitError, setSubmitError] = useState('')
 
   const submit = async () => {
-    if (!name.trim() || !email.trim() || password.length < 8 || !department.trim()) return Alert.alert('Check your details', 'Name, CUET email, department, and an 8-character password are required.')
-    if (password !== confirmPassword) return Alert.alert('Passwords do not match', 'Re-enter the same password in both fields.')
+    const fail = (title: string, message: string) => { setSubmitError(message); Alert.alert(title, message) }
+    setSubmitError('')
+    if (!name.trim() || !email.trim() || password.length < 8 || !department.trim()) return fail('Check your details', 'Name, CUET email, department, and an 8-character password are required.')
+    if (password !== confirmPassword) return fail('Passwords do not match', 'Re-enter the same password in both fields.')
     const domain = role === 'student' ? '@student.cuet.ac.bd' : '@teacher.cuet.ac.bd'
-    if (!email.trim().toLowerCase().endsWith(domain)) return Alert.alert('Use your CUET email', `A ${role} account requires an email ending in ${domain}.`)
-    if (role === 'teacher' && !designation) return Alert.alert('Choose your teaching position', 'Select your current designation.')
-    if (role === 'student' && (!batch.trim() || !studentId.trim())) return Alert.alert('Complete academic details', 'Batch and Student ID are required for students.')
+    if (!email.trim().toLowerCase().endsWith(domain)) return fail('Use your CUET email', `A ${role} account requires an email ending in ${domain}.`)
+    if (role === 'teacher' && !designation) return fail('Choose your teaching position', 'Select your current designation.')
+    if (role === 'student' && (!batch.trim() || !studentId.trim())) return fail('Complete academic details', 'Batch and Student ID are required for students.')
     setLoading(true)
     try {
       const created = await signUp(name.trim(), email.trim().toLowerCase(), password, role, department.trim(), designation, role === 'student' ? { batch: batch.trim(), studentId: studentId.trim(), currentLevel, currentTerm } : undefined)
       router.replace((created.role === 'student' ? '/verify-email' : '/(teacher-tabs)/dashboard') as Href)
-    } catch (reason) { Alert.alert('Could not create account', reason instanceof Error ? reason.message : 'Please try again.') }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Account creation failed. Please try again.'
+      setSubmitError(message)
+      Alert.alert('Could not create account', message)
+    }
     finally { setLoading(false) }
   }
 
@@ -37,7 +43,7 @@ export default function SignUp() {
     <View className="mt-6 flex-row gap-3">{(['student', 'teacher'] as const).map(item => <Pressable key={item} accessibilityRole="button" onPress={() => setRole(item)} className={`flex-1 rounded-xl border p-3 ${role === item ? 'border-brand bg-blue-50 dark:bg-slate-900' : 'border-slate-200 dark:border-slate-800'}`}><Text className={`text-center font-semibold capitalize ${role === item ? 'text-brand' : 'text-muted'}`}>{item}</Text></Pressable>)}</View>
     <View className="mt-6"><Field label="Full name" value={name} onChangeText={setName} placeholder="Your full name" autoCapitalize="words" /><Field label="CUET email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} placeholder={emailHint[role]} /><Field label="Department" autoCapitalize="characters" value={department} onChangeText={setDepartment} placeholder="CSE" />
       {role === 'student' ? <><Field label="Batch" value={batch} onChangeText={setBatch} placeholder="e.g. 2022" keyboardType="numeric" /><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. 2204001" keyboardType="numeric" /><OptionPicker label="Current level" options={academicLevels} value={currentLevel} onChange={setCurrentLevel} format={value => `Level ${value}`} /><OptionPicker label="Current term" options={academicTerms} value={currentTerm} onChange={setCurrentTerm} format={value => `Term ${value}`} /></> : <DesignationPicker value={designation} open={designationMenuOpen} onToggle={() => setDesignationMenuOpen(value => !value)} onChange={value => { setDesignation(value); setDesignationMenuOpen(false) }} />}
-      <PasswordField label="Password" value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword(value => !value)} placeholder="At least 8 characters" /><PasswordField label="Re-enter password" value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmation} onToggle={() => setShowConfirmation(value => !value)} placeholder="Enter the same password again" /><Button loading={loading} onPress={submit}>Create {role} account</Button></View>
+      <PasswordField label="Password" value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword(value => !value)} placeholder="At least 8 characters" /><PasswordField label="Re-enter password" value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmation} onToggle={() => setShowConfirmation(value => !value)} placeholder="Enter the same password again" />{submitError ? <View className="mb-4 flex-row items-center rounded-xl bg-rose-50 px-3 py-3 dark:bg-rose-950"><Feather name="alert-circle" size={18} color="#E11D48" /><Text className="ml-2 flex-1 text-sm text-rose-700 dark:text-rose-300">{submitError}</Text></View> : null}<Button loading={loading} onPress={submit}>Create {role} account</Button></View>
     <Text className="mt-5 text-center text-xs leading-5 text-muted">Students must verify their CUET email before accessing the dashboard. Teachers can access the dashboard after creating an account.</Text><Text onPress={() => router.push('/sign-in')} className="mt-6 text-center text-sm font-semibold text-brand">Already have an account? Sign in</Text>
   </ScrollView></SafeAreaView>
 }

@@ -20,6 +20,7 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
   const [changingAppearance, setChangingAppearance] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     if (!profile) return
@@ -85,7 +86,17 @@ export default function ProfileScreen() {
     }
   }
 
-  const logout = () => Alert.alert('Sign out?', 'You can sign back in anytime.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: () => { void signOut().then(() => router.replace('/welcome')) } }])
+  const logout = async () => {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      await signOut()
+      router.replace('/welcome')
+    } catch (reason) {
+      Alert.alert('Could not sign out', reason instanceof Error ? reason.message : 'Please try again.')
+      setSigningOut(false)
+    }
+  }
 
   return <Screen><ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 32 }}>
     <Text className="mt-6 text-2xl font-bold text-ink dark:text-white">Profile & settings</Text>
@@ -104,6 +115,6 @@ export default function ProfileScreen() {
     <Card className="mt-3"><Text className="font-medium text-ink dark:text-white">Change password</Text><Text className="mt-1 text-xs leading-5 text-muted">Confirm your current password before choosing a new one.</Text><View className="mt-4"><Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry placeholder="Your current password" /><Field label="New password" value={newPassword} onChangeText={setNewPassword} secureTextEntry placeholder="At least 8 characters" /><Field label="Confirm new password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry placeholder="Enter the new password again" /><Button loading={changingPassword} variant="outline" onPress={savePassword}>Update password</Button></View></Card>
 
     {profile.role === 'admin' ? <Card className="mt-3"><Text onPress={() => router.push('/(admin-tabs)/overview')} className="font-medium text-ink dark:text-white">Open admin workspace</Text><Text className="mt-1 text-xs text-muted">Manage members, tagged courses, assignments, moderation, and analytics.</Text></Card> : profile.role === 'student' ? <Card className="mt-3"><Text onPress={() => router.push('/my-reviews')} className="font-medium text-ink dark:text-white">My reviews</Text><Text className="mt-1 text-xs text-muted">View feedback you have shared.</Text></Card> : <Card className="mt-3"><Text onPress={() => router.push('/(teacher-tabs)/feedback')} className="font-medium text-ink dark:text-white">Teaching feedback</Text><Text className="mt-1 text-xs text-muted">Review feedback for your assigned courses and profile.</Text></Card>}
-    <Button className="mt-7" variant="danger" onPress={logout}>Sign out</Button>
+    <Button className="mt-7" variant="danger" loading={signingOut} onPress={() => { void logout() }}>Sign out</Button>
   </ScrollView></Screen>
 }

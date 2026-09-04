@@ -293,6 +293,13 @@ service cloud.firestore {
         && request.resource.data.name == userProfile().data.name && request.resource.data.department == userProfile().data.department
         && request.resource.data.designation == userProfile().data.designation
         && request.resource.data.active == true;
+      allow create: if isAdmin() && exists(/databases/$(database)/documents/users/$(teacherId))
+        && get(/databases/$(database)/documents/users/$(teacherId)).data.role == 'teacher'
+        && request.resource.data.name == get(/databases/$(database)/documents/users/$(teacherId)).data.name
+        && request.resource.data.department == get(/databases/$(database)/documents/users/$(teacherId)).data.department
+        && request.resource.data.designation == get(/databases/$(database)/documents/users/$(teacherId)).data.designation
+        && request.resource.data.active == true
+        && validDirectory();
       allow update: if (own(teacherId) && isTeacher()
           && validDirectory() && request.resource.data.active == true
           && request.resource.data.name == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.name

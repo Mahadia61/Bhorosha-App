@@ -9,6 +9,17 @@ const isStudentEmail = (email: string) => /^u\d+@student\.cuet\.ac\.bd$/.test(em
 const isTeacherEmail = (email: string) => /^u\d+@teacher\.cuet\.ac\.bd$/.test(email)
 const backendUrl = () => process.env.EXPO_PUBLIC_BACKEND_URL?.replace(/\/$/, '') ?? ''
 
+function firebaseSignupError(reason: unknown) {
+  const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
+  if (code.includes('auth/email-already-in-use')) return new Error('This email already has an account. Sign in instead or use a different CUET email.')
+  if (code.includes('auth/operation-not-allowed')) return new Error('Email/password sign-up is disabled in Firebase Authentication. Enable it in Firebase Console > Authentication > Sign-in method.')
+  if (code.includes('auth/invalid-email')) return new Error('Enter a valid CUET email address.')
+  if (code.includes('auth/weak-password')) return new Error('Use a stronger password with at least 8 characters.')
+  if (code.includes('permission-denied')) return new Error('Firebase rejected the profile write. Confirm the email is a CUET student address (u<number>@student.cuet.ac.bd), then deploy the current Firestore rules.')
+  if (code.includes('auth/network-request-failed')) return new Error('Firebase could not connect. Check your internet connection and Firebase configuration.')
+  return reason instanceof Error ? reason : new Error('Account creation failed. Please try again.')
+}
+
 function requireFirebase() {
   if (!firebaseEnabled || !auth || !db) throw new Error('Firebase is not configured. Copy .env.example to .env and add your Firebase web app values.')
   return { auth, db }
@@ -95,6 +106,12 @@ async function firebaseProfile(userId: string): Promise<Profile | null> {
   return snapshot.exists() ? profileFrom(snapshot.id, snapshot.data()) : null
 }
 
+async function authenticatedProfile(userId: string, emailVerified: boolean): Promise<Profile | null> {
+  const profile = await firebaseProfile(userId)
+  if (!profile || profile.role !== 'student') return profile
+  return { ...profile, emailVerified }
+}
+
 async function firebaseAnswers(questionId: string): Promise<QuestionAnswer[]> {
   const { db: firestore } = requireFirebase()
   const snapshot = await getDocs(query(collection(firestore, 'courseQuestions', questionId, 'answers'), orderBy('createdAt', 'asc')))
@@ -127,12 +144,12 @@ export const services = {
 
   subscribeToSession(callback: (profile: Profile | null) => void) {
     if (!firebaseEnabled || !auth) { callback(null); return () => undefined }
-    return onAuthStateChanged(auth, user => { void (user ? firebaseProfile(user.uid) : Promise.resolve(null)).then(callback).catch(() => callback(null)) })
+    return onAuthStateChanged(auth, user => { void (user ? authenticatedProfile(user.uid, user.emailVerified) : Promise.resolve(null)).then(callback).catch(() => callback(null)) })
   },
 
   async session(): Promise<Profile | null> {
     if (!firebaseEnabled || !auth?.currentUser) return null
-    return firebaseProfile(auth.currentUser.uid)
+    return authenticatedProfile(auth.currentUser.uid, auth.currentUser.emailVerified)
   },
 
   async signUp(name: string, email: string, password: string, role: Role, department: string, designation?: string, studentDetails?: { batch: string; studentId: string; currentLevel: AcademicLevel; currentTerm: AcademicTerm }): Promise<Profile> {
@@ -147,7 +164,12 @@ export const services = {
     if (role === 'teacher' && !designation?.trim()) throw new Error('Choose your teaching position.')
     if (role === 'student' && (!studentDetails?.batch.trim() || !studentDetails.studentId.trim() || !studentDetails.currentLevel || !studentDetails.currentTerm)) throw new Error('Add your batch, student ID, current level, and current term.')
 
-    const credential = await createUserWithEmailAndPassword(firebaseAuth, normalized, password)
+    let credential
+    try {
+      credential = await createUserWithEmailAndPassword(firebaseAuth, normalized, password)
+    } catch (reason) {
+      throw firebaseSignupError(reason)
+    }
     const requiresEmailVerification = role === 'student'
     const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: !requiresEmailVerification, emailVerified: !requiresEmailVerification, ...(role === 'student' && studentDetails ? { batch: studentDetails.batch.trim(), studentId: studentDetails.studentId.trim(), currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
     const profileRecord = {
@@ -174,8 +196,9 @@ export const services = {
       // Firebase Authentication without its required Firestore profile.
       await deleteUser(credential.user).catch(() => undefined)
       await firebaseSignOut(firebaseAuth).catch(() => undefined)
-      throw reason
+      throw firebaseSignupError(reason)
     }
+    if (role === 'teacher') await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom(profile))
     if (requiresEmailVerification) await sendEmailVerification(credential.user)
     return profile
   },
@@ -185,9 +208,13 @@ export const services = {
     const normalized = normalizeEmail(email)
     if (!normalized || !password) throw new Error('Enter both email and password.')
     const credential = await signInWithEmailAndPassword(firebaseAuth, normalized, password)
-    const profile = await firebaseProfile(credential.user.uid)
+    const profile = await authenticatedProfile(credential.user.uid, credential.user.emailVerified)
     if (!profile) { await firebaseSignOut(firebaseAuth); throw new Error('Your account profile is not set up. Ask an administrator to create it.') }
-    if (profile.emailVerified === false) return profile
+    if (profile.role === 'student' && credential.user.emailVerified === false) return { ...profile, emailVerified: false, active: false }
+    if (profile.role === 'teacher' && profile.active === false) {
+      await firebaseSignOut(firebaseAuth)
+      throw new Error('This teacher account is inactive. An administrator must activate it from Member management before you can sign in.')
+    }
     if (profile.active === false) { await firebaseSignOut(firebaseAuth); throw new Error('This account has been suspended. Contact an administrator.') }
     return profile
   },
@@ -564,7 +591,13 @@ export const services = {
   async adminUsers(): Promise<Profile[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(collection(firestore, 'users'))
-    return snapshot.docs.map(item => profileFrom(item.id, item.data()))
+    const users = snapshot.docs.map(item => profileFrom(item.id, item.data()))
+    await Promise.all(users.filter(user => user.role === 'teacher' && user.active !== false).map(async user => {
+      const directoryRef = doc(firestore, 'teacherDirectory', user.id)
+      const directory = await getDoc(directoryRef)
+      if (!directory.exists()) await setDoc(directoryRef, directoryFrom(user))
+    }))
+    return users
   },
   async departments(): Promise<string[]> {
     const { db: firestore } = requireFirebase()
@@ -584,12 +617,18 @@ export const services = {
   async updateUserStatus(user: Profile, active: boolean) {
     const { db: firestore } = requireFirebase()
     if (user.role === 'admin') throw new Error('Administrator access cannot be changed from the app.')
-    if (active && user.emailVerified === false) throw new Error('This member must verify their CUET email before the account can be activated.')
+    if (active && user.role === 'student' && user.emailVerified === false) {
+      throw new Error('This student must verify their CUET email before the account can be activated.')
+    }
     const batch = writeBatch(firestore)
     batch.set(doc(firestore, 'users', user.id), { active, updatedAt: Date.now() }, { merge: true })
     if (user.role === 'teacher') {
       const directory = await getDoc(doc(firestore, 'teacherDirectory', user.id))
-      if (directory.exists()) batch.set(directory.ref, { active, updatedAt: Date.now() }, { merge: true })
+      batch.set(
+        doc(firestore, 'teacherDirectory', user.id),
+        directory.exists() ? { active, updatedAt: Date.now() } : directoryFrom({ ...user, active }),
+        { merge: true },
+      )
     }
     await batch.commit()
     return { ...user, active }

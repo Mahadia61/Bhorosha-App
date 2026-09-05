@@ -1,13 +1,23 @@
 import { EmailAuthProvider, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword } from 'firebase/auth'
-import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, setDoc, where, writeBatch } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore'
 import { auth, db, firebaseEnabled } from './firebase'
 import { sanitizeCommunityText } from './content-filter'
-import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, ContentType, Course, CourseGuide, CourseQuestion, CourseType, Professor, ProfessorReview, Profile, QuestionAnswer, QuestionCategory, RatingMap, Report, ReportReason, Review, Role, TeacherResponse } from './types'
+import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, AppNotificationCategory, ContentType, Course, CourseGuide, CourseQuestion, CourseStatus, CourseType, ModerationAppeal, ModerationHistoryItem, Professor, ProfessorReview, Profile, QuestionAnswer, QuestionCategory, RatingMap, Report, ReportReason, Review, Role, TeacherResponse } from './types'
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const isStudentEmail = (email: string) => /^u\d+@student\.cuet\.ac\.bd$/.test(email)
 const isTeacherEmail = (email: string) => /^u\d+@teacher\.cuet\.ac\.bd$/.test(email)
 const backendUrl = () => process.env.EXPO_PUBLIC_BACKEND_URL?.replace(/\/$/, '') ?? ''
+
+function adminNotificationCategory(data: Record<string, unknown>): AppNotificationCategory {
+  const category = data.category
+  if (category === 'reports' || category === 'users' || category === 'courses' || category === 'system') return category
+  const title = `${String(data.title ?? '')} ${String(data.body ?? '')}`.toLowerCase()
+  if (title.includes('report') || title.includes('moder')) return 'reports'
+  if (title.includes('user') || title.includes('teacher') || title.includes('student') || title.includes('verification')) return 'users'
+  if (title.includes('course')) return 'courses'
+  return 'system'
+}
 
 function firebaseSignupError(reason: unknown) {
   const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
@@ -44,6 +54,7 @@ const profileFrom = (id: string, data: Record<string, unknown>): Profile => ({
   currentLevel: ['1', '2', '3', '4'].includes(String(data.currentLevel)) ? String(data.currentLevel) as AcademicLevel : undefined,
   currentTerm: ['1', '2'].includes(String(data.currentTerm)) ? String(data.currentTerm) as AcademicTerm : undefined,
   warningCount: Number(data.warningCount ?? 0),
+  createdAt: typeof data.createdAt === 'number' ? data.createdAt : undefined,
 })
 
 const directoryFrom = (profile: Profile): Record<string, unknown> => ({
@@ -68,6 +79,7 @@ const courseFrom = (id: string, data: Record<string, unknown>): Course => ({
   teacherIds: Array.isArray(data.teacherIds) ? data.teacherIds.map(String) : [],
   teacherNames: Array.isArray(data.teacherNames) ? data.teacherNames.map(String) : [],
   tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
+  status: ['active', 'archived', 'draft'].includes(String(data.status)) ? String(data.status) as CourseStatus : 'active',
 })
 
 const reviewFrom = (id: string, data: Record<string, unknown>): Review => {
@@ -493,23 +505,71 @@ export const services = {
     const reportRef = doc(collection(firestore, 'reports'))
     if (contentType === 'answer' && !questionId) throw new Error('The question context is required to report an answer.')
     const createdAt = Date.now()
-    await setDoc(reportRef, { contentType, contentId, reportedBy: firebaseAuth.currentUser.uid, reason, status: 'pending', createdAt, ...(questionId ? { questionId } : {}) })
-    await setDoc(doc(firestore, 'adminNotifications', reportRef.id), { reportId: reportRef.id, title: 'New reported content', body: `${reason} report requires review.`, read: false, createdAt })
+    const batch = writeBatch(firestore)
+    batch.set(reportRef, { contentType, contentId, reportedBy: firebaseAuth.currentUser.uid, reason, status: 'pending', createdAt, ...(questionId ? { questionId } : {}) })
+    batch.set(doc(firestore, 'adminNotifications', reportRef.id), { reportId: reportRef.id, title: 'New reported content', body: `${reason} report requires review.`, read: false, createdAt })
+    await batch.commit()
   },
   async reports(): Promise<Report[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'reports'), where('status', '==', 'pending'), orderBy('createdAt', 'desc')))
     return snapshot.docs.map(item => ({ id: item.id, contentType: item.data().contentType as ContentType, contentId: String(item.data().contentId ?? ''), ...(typeof item.data().questionId === 'string' ? { questionId: item.data().questionId } : {}), reason: item.data().reason as ReportReason, status: item.data().status as Report['status'], createdAt: Number(item.data().createdAt ?? 0) }))
   },
+  async allReports(): Promise<Report[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'reports'), orderBy('createdAt', 'desc')))
+    return snapshot.docs.map(item => ({ id: item.id, contentType: item.data().contentType as ContentType, contentId: String(item.data().contentId ?? ''), ...(typeof item.data().questionId === 'string' ? { questionId: item.data().questionId } : {}), reason: item.data().reason as ReportReason, status: item.data().status as Report['status'], createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  subscribeAllReports(onChange: (reports: Report[]) => void, onError: (reason: Error) => void): Unsubscribe {
+    const { db: firestore } = requireFirebase()
+    return onSnapshot(query(collection(firestore, 'reports'), orderBy('createdAt', 'desc')), snapshot => {
+      onChange(snapshot.docs.map(item => ({ id: item.id, contentType: item.data().contentType as ContentType, contentId: String(item.data().contentId ?? ''), ...(typeof item.data().questionId === 'string' ? { questionId: item.data().questionId } : {}), reason: item.data().reason as ReportReason, status: item.data().status as Report['status'], createdAt: Number(item.data().createdAt ?? 0) })))
+    }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch reports.')))
+  },
   async adminNotifications(): Promise<AppNotification[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'adminNotifications'), orderBy('createdAt', 'desc')))
-    return snapshot.docs.map(item => ({ id: item.id, title: String(item.data().title ?? 'Admin notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
+    return snapshot.docs
+      .filter(item => {
+        const data = item.data()
+        const title = String(data.title ?? '').toLowerCase()
+        const body = String(data.body ?? '').toLowerCase()
+        return data.category !== 'questions' && typeof data.questionId !== 'string' && !title.includes('unanswered question') && !body.includes('unanswered question')
+      })
+      .map(item => {
+        const data = item.data()
+        return { id: item.id, reportId: typeof data.reportId === 'string' ? data.reportId : undefined, title: String(data.title ?? 'Admin notification'), body: String(data.body ?? ''), read: data.read === true, createdAt: Number(data.createdAt ?? 0), category: adminNotificationCategory(data) }
+      })
+  },
+  subscribeAdminNotifications(onChange: (notifications: AppNotification[]) => void, onError: (reason: Error) => void): Unsubscribe {
+    const { db: firestore } = requireFirebase()
+    return onSnapshot(query(collection(firestore, 'adminNotifications'), orderBy('createdAt', 'desc')), snapshot => {
+      const notifications = snapshot.docs.filter(item => {
+        const data = item.data()
+        const title = String(data.title ?? '').toLowerCase()
+        const body = String(data.body ?? '').toLowerCase()
+        return data.category !== 'questions' && typeof data.questionId !== 'string' && !title.includes('unanswered question') && !body.includes('unanswered question')
+      }).map(item => {
+        const data = item.data()
+        return { id: item.id, reportId: typeof data.reportId === 'string' ? data.reportId : undefined, title: String(data.title ?? 'Admin notification'), body: String(data.body ?? ''), read: data.read === true, createdAt: Number(data.createdAt ?? 0), category: adminNotificationCategory(data) }
+      })
+      onChange(notifications)
+    }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch admin notifications.')))
+  },
+  async markAdminNotificationRead(notificationId: string) {
+    const { db: firestore } = requireFirebase()
+    await setDoc(doc(firestore, 'adminNotifications', notificationId), { read: true }, { merge: true })
   },
   async teacherNotifications(userId: string): Promise<AppNotification[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'notifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')))
     return snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  subscribeTeacherNotifications(userId: string, onChange: (notifications: AppNotification[]) => void, onError: (reason: Error) => void): Unsubscribe {
+    const { db: firestore } = requireFirebase()
+    return onSnapshot(query(collection(firestore, 'notifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')), snapshot => {
+      onChange(snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) })))
+    }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch notifications.')))
   },
   async markTeacherNotificationRead(notificationId: string) {
     const { db: firestore } = requireFirebase()
@@ -517,7 +577,11 @@ export const services = {
   },
   async updateReportStatus(reportId: string, status: Report['status']) {
     const { db: firestore } = requireFirebase()
-    await setDoc(doc(firestore, 'reports', reportId), { status, resolvedAt: Date.now() }, { merge: true })
+    const createdAt = Date.now()
+    const batch = writeBatch(firestore)
+    batch.set(doc(firestore, 'reports', reportId), { status, resolvedAt: createdAt }, { merge: true })
+    batch.set(doc(collection(firestore, 'moderationHistory')), { action: status === 'removed' ? 'removed' : status === 'hidden' ? 'hidden' : status === 'kept' ? 'kept' : 'warned', targetType: 'report', targetId: reportId, summary: `Report marked ${status}.`, createdAt })
+    await batch.commit()
   },
   async warnReportedUser(reportId: string) {
     const { auth: firebaseAuth } = requireFirebase()
@@ -591,13 +655,7 @@ export const services = {
   async adminUsers(): Promise<Profile[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(collection(firestore, 'users'))
-    const users = snapshot.docs.map(item => profileFrom(item.id, item.data()))
-    await Promise.all(users.filter(user => user.role === 'teacher' && user.active !== false).map(async user => {
-      const directoryRef = doc(firestore, 'teacherDirectory', user.id)
-      const directory = await getDoc(directoryRef)
-      if (!directory.exists()) await setDoc(directoryRef, directoryFrom(user))
-    }))
-    return users
+    return snapshot.docs.map(item => profileFrom(item.id, item.data()))
   },
   async departments(): Promise<string[]> {
     const { db: firestore } = requireFirebase()
@@ -616,26 +674,18 @@ export const services = {
   },
   async updateUserStatus(user: Profile, active: boolean) {
     const { db: firestore } = requireFirebase()
-    if (user.role === 'admin') throw new Error('Administrator access cannot be changed from the app.')
-    if (active && user.role === 'student' && user.emailVerified === false) {
-      throw new Error('This student must verify their CUET email before the account can be activated.')
-    }
+    if (user.role !== 'student') throw new Error('Only student accounts can be suspended by an administrator.')
+    if (active) throw new Error('Student accounts can only be suspended from the admin workspace.')
     const batch = writeBatch(firestore)
+    const createdAt = Date.now()
     batch.set(doc(firestore, 'users', user.id), { active, updatedAt: Date.now() }, { merge: true })
-    if (user.role === 'teacher') {
-      const directory = await getDoc(doc(firestore, 'teacherDirectory', user.id))
-      batch.set(
-        doc(firestore, 'teacherDirectory', user.id),
-        directory.exists() ? { active, updatedAt: Date.now() } : directoryFrom({ ...user, active }),
-        { merge: true },
-      )
-    }
+    batch.set(doc(collection(firestore, 'moderationHistory')), { action: active ? 'activated' : 'suspended', targetType: 'user', targetId: user.id, summary: `${user.name} account ${active ? 'activated' : 'suspended'}.`, createdAt })
     await batch.commit()
     return { ...user, active }
   },
   async createCourse(input: Omit<Course, 'id'>) {
     const { db: firestore } = requireFirebase()
-    const value = { ...input, code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), createdAt: Date.now(), updatedAt: Date.now() }
+    const value = { ...input, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), createdAt: Date.now(), updatedAt: Date.now() }
     if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.teacherIds.length || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, type, and at least one assigned teacher are required.')
     const ref = doc(collection(firestore, 'courses'))
     await setDoc(ref, value)
@@ -643,7 +693,7 @@ export const services = {
   },
   async updateCourse(courseId: string, input: Omit<Course, 'id'>) {
     const { db: firestore } = requireFirebase()
-    const value = { ...input, code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), updatedAt: Date.now() }
+    const value = { ...input, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), updatedAt: Date.now() }
     if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.teacherIds.length || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, type, and at least one assigned teacher are required.')
     await setDoc(doc(firestore, 'courses', courseId), value, { merge: true })
     return { id: courseId, ...value }
@@ -672,6 +722,28 @@ export const services = {
       refs.slice(start, start + 450).forEach(reference => batch.delete(reference))
       await batch.commit()
     }
+  },
+  async archiveCourse(course: Course, status: CourseStatus = 'archived') {
+    const { db: firestore } = requireFirebase()
+    const createdAt = Date.now()
+    const batch = writeBatch(firestore)
+    batch.set(doc(firestore, 'courses', course.id), { status, updatedAt: createdAt }, { merge: true })
+    batch.set(doc(collection(firestore, 'moderationHistory')), { action: 'archived', targetType: 'course', targetId: course.id, summary: `${course.code} marked ${status}.`, createdAt })
+    await batch.commit()
+  },
+  async moderationHistory(): Promise<ModerationHistoryItem[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'moderationHistory'), orderBy('createdAt', 'desc')))
+    return snapshot.docs.map(item => ({ id: item.id, action: item.data().action as ModerationHistoryItem['action'], targetType: String(item.data().targetType ?? ''), targetId: String(item.data().targetId ?? ''), summary: String(item.data().summary ?? ''), createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  async appeals(): Promise<ModerationAppeal[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'appeals'), orderBy('createdAt', 'desc')))
+    return snapshot.docs.map(item => ({ id: item.id, reportId: String(item.data().reportId ?? ''), submittedBy: String(item.data().submittedBy ?? ''), reason: String(item.data().reason ?? ''), status: item.data().status as ModerationAppeal['status'], createdAt: Number(item.data().createdAt ?? 0) }))
+  },
+  async updateAppealStatus(appealId: string, status: ModerationAppeal['status']) {
+    const { db: firestore } = requireFirebase()
+    await setDoc(doc(firestore, 'appeals', appealId), { status, resolvedAt: Date.now() }, { merge: true })
   },
 }
 

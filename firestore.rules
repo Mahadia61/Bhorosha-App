@@ -11,7 +11,9 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && userProfile().data.active == true
-        && (userProfile().data.role == 'teacher' || userProfile().data.emailVerified == true);
+        && (userProfile().data.role == 'admin'
+          || userProfile().data.role == 'teacher'
+          || userProfile().data.emailVerified == true);
     }
     function isStudent() { return activeUser() && userProfile().data.role == 'student'; }
     function isTeacher() { return activeUser() && userProfile().data.role == 'teacher'; }
@@ -201,9 +203,10 @@ service cloud.firestore {
           && request.resource.data.department == resource.data.department
           && validProfileUpdate()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'designation', 'photoUrl', 'bio', 'darkMode', 'updatedAt']))
-        || (isAdmin() && request.auth.uid != userId && resource.data.role != 'admin'
+        || (isAdmin() && request.auth.uid != userId && resource.data.role == 'student'
           && request.resource.data.role == resource.data.role && request.resource.data.email == resource.data.email
           && request.resource.data.department == resource.data.department
+          && request.resource.data.active == false
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt']));
       allow delete: if false;
 
@@ -452,7 +455,8 @@ service cloud.firestore {
           || (request.resource.data.contentType != 'answer' && !('questionId' in request.resource.data)))
         && request.resource.data.reason in ['Offensive language', 'Personal attack', 'Fake information', 'Spam', 'Other']
         && request.resource.data.status == 'pending' && validFreshClientTime(request.resource.data.createdAt);
-      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
+      allow update: if isAdmin() && request.resource.data.status in ['pending', 'kept', 'hidden', 'removed', 'warned']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
       allow delete: if false;
     }
 
@@ -467,6 +471,20 @@ service cloud.firestore {
         && validFreshClientTime(request.resource.data.createdAt);
       allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
+      allow delete: if false;
+    }
+
+    match /moderationHistory/{historyId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /appeals/{appealId} {
+      allow read: if isAdmin() || (activeUser() && resource.data.submittedBy == request.auth.uid);
+      allow create: if activeUser()
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
       allow delete: if false;
     }
   }

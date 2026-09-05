@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, ScrollView, Text, TextInput, View } from 'react-native'
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Redirect, router } from 'expo-router'
 import { Button, Card, Empty } from '@/components/ui'
 import { services } from '@/lib/services'
 import { useApp } from '@/providers/AppProvider'
 import type { Course, CourseQuestion } from '@/lib/types'
+import { TeacherHeader } from '@/components/TeacherHeader'
 
 export default function TeacherQuestions({ inTab = false }: { inTab?: boolean }) {
   const { profile } = useApp()
@@ -13,6 +14,7 @@ export default function TeacherQuestions({ inTab = false }: { inTab?: boolean })
   const [courses, setCourses] = useState<Course[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [sending, setSending] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'unanswered' | 'answered'>('all')
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -39,13 +41,13 @@ export default function TeacherQuestions({ inTab = false }: { inTab?: boolean })
       setSending(null)
     }
   }
+  const visibleQuestions = questions.filter(question => filter === 'all' || (filter === 'answered' ? (question.answers ?? []).some(item => item.authorRole === 'teacher') : !(question.answers ?? []).some(item => item.authorRole === 'teacher')))
 
   if (profile?.role !== 'teacher') return <Redirect href="/" />
   return <SafeAreaView className="flex-1 bg-surface dark:bg-slate-950"><ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }}>
-    {!inTab ? <Text onPress={() => router.back()} className="mt-2 text-sm font-semibold text-brand">← Back</Text> : null}
-    <Text className={`${inTab ? 'mt-2' : 'mt-6'} text-2xl font-bold text-ink dark:text-white`}>Course Q&A</Text>
-    <Text className="mt-1 text-sm text-muted">Answer students without exposing their identity. বাংলা and English are both supported.</Text>
-    {questions.length ? questions.map(question => {
+    <TeacherHeader title="Course Q&A" />
+    <Text className="mt-1 text-sm text-muted">Answer students without exposing their identity. বাংলা and English are both supported.</Text><View className="mt-5 flex-row gap-2">{(['all', 'unanswered', 'answered'] as const).map(option => <Pressable key={option} onPress={() => setFilter(option)} className={`rounded-full px-3 py-2 ${filter === option ? 'bg-brand' : 'bg-slate-200 dark:bg-slate-800'}`}><Text className={`text-xs font-semibold capitalize ${filter === option ? 'text-white' : 'text-muted'}`}>{option}</Text></Pressable>)}</View>
+    {visibleQuestions.length ? visibleQuestions.map(question => {
       const course = courses.find(value => value.id === question.courseId)
       return <Card key={question.id} className="mt-4">
         <Text className="text-xs font-bold text-brand">{course?.code ?? 'Course'} · {question.category}</Text>

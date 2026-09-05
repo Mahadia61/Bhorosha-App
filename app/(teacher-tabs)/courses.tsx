@@ -1,2 +1,3 @@
-import Courses from '../(tabs)/courses'
-export default Courses
+import TeacherCourses from '../teacher-courses'
+
+export default TeacherCourses

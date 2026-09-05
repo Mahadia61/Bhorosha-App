@@ -2,6 +2,7 @@ export type Role = 'student' | 'teacher' | 'admin'
 export type AcademicLevel = '1' | '2' | '3' | '4'
 export type AcademicTerm = '1' | '2'
 export type CourseType = 'Theory' | 'Lab' | 'Project' | 'Sessional' | 'Other'
+export type CourseStatus = 'active' | 'archived' | 'draft'
 export type QuestionCategory = 'Course Content' | 'Exam' | 'Assignment' | 'Project' | 'Registration' | 'Other'
 
 export type RatingMap = {
@@ -31,6 +32,7 @@ export type Profile = {
   currentLevel?: AcademicLevel
   currentTerm?: AcademicTerm
   warningCount?: number
+  createdAt?: number
 }
 
 export type Course = {
@@ -45,6 +47,7 @@ export type Course = {
   teacherIds: string[]
   teacherNames: string[]
   tags: string[]
+  status?: CourseStatus
 }
 
 export type TeacherResponse = { id: string; teacherName: string; text: string; createdAt: number }
@@ -73,8 +76,11 @@ export type CourseQuestion = { id: string; courseId: string; category: QuestionC
 export type CourseGuide = { id: string; courseId: string; title: string; text: string; resources?: string; createdAt: number }
 export type ContentType = 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer'
 export type ReportReason = 'Offensive language' | 'Personal attack' | 'Fake information' | 'Spam' | 'Other'
-export type Report = { id: string; contentType: ContentType; contentId: string; questionId?: string; reason: ReportReason; status: 'pending' | 'kept' | 'removed' | 'warned'; createdAt: number }
-export type AppNotification = { id: string; questionId?: string; courseId?: string; title: string; body: string; read: boolean; createdAt: number }
+export type Report = { id: string; contentType: ContentType; contentId: string; questionId?: string; reason: ReportReason; status: 'pending' | 'kept' | 'hidden' | 'removed' | 'warned'; createdAt: number }
+export type AppNotificationCategory = 'reports' | 'users' | 'courses' | 'system'
+export type AppNotification = { id: string; questionId?: string; courseId?: string; reportId?: string; title: string; body: string; read: boolean; createdAt: number; category?: AppNotificationCategory }
+export type ModerationAppeal = { id: string; reportId: string; submittedBy: string; reason: string; status: 'pending' | 'accepted' | 'rejected'; createdAt: number }
+export type ModerationHistoryItem = { id: string; action: 'kept' | 'hidden' | 'removed' | 'warned' | 'archived' | 'activated' | 'suspended'; targetType: string; targetId: string; summary: string; createdAt: number }
 
 export type ActivityItem = {
   id: string

@@ -7,7 +7,7 @@ import { Button, Card, Empty, Field } from '@/components/ui'
 import { services } from '@/lib/services'
 import { useApp } from '@/providers/AppProvider'
 import { academicLevels, academicTerms, adminCourseTypes } from '@/lib/academic'
-import type { AcademicLevel, AcademicTerm, Course, CourseType, Profile } from '@/lib/types'
+import type { AcademicLevel, AcademicTerm, Course, CourseStatus, CourseType, Profile } from '@/lib/types'
 
 type CourseForm = {
   code: string
@@ -19,9 +19,10 @@ type CourseForm = {
   department: string
   teacherIds: string[]
   tags: string
+  status: CourseStatus
 }
 
-const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', level: null, term: null, courseType: null, department: '', teacherIds: [], tags: '' })
+const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', level: null, term: null, courseType: null, department: '', teacherIds: [], tags: '', status: 'active' })
 
 export default function AdminCourseForm() {
   const { profile } = useApp()
@@ -59,6 +60,7 @@ export default function AdminCourseForm() {
           department: course.department,
           teacherIds: course.teacherIds,
           tags: course.tags.join(', '),
+          status: course.status ?? 'active',
         })
       }
     } catch (reason) {
@@ -123,6 +125,7 @@ export default function AdminCourseForm() {
       teacherIds: selectedTeachers.map(teacher => teacher.id),
       teacherNames: selectedTeachers.map(teacher => teacher.name),
       tags: form.tags.split(',').map(tag => tag.trim()).filter(Boolean),
+      status: form.status,
     }
 
     setSaving(true)
@@ -142,10 +145,6 @@ export default function AdminCourseForm() {
 
   return <SafeAreaView className="flex-1 bg-slate-50 dark:bg-slate-950">
     <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-      <Pressable onPress={() => router.back()} className="mb-5 flex-row items-center self-start gap-2">
-        <Feather name="arrow-left" size={18} color="#4F7EF7" />
-        <Text className="text-sm font-semibold text-brand">Course catalogue</Text>
-      </Pressable>
       <Text className="text-2xl font-bold text-ink dark:text-white">{courseId ? 'Edit course' : 'Add course'}</Text>
       <Text className="mt-1 text-sm text-muted">Set course details, optional tags, and one or more teaching assignments.</Text>
 
@@ -159,6 +158,7 @@ export default function AdminCourseForm() {
               <ChoiceRow label="CUET level" values={academicLevels} value={form.level} onChange={value => setValue('level', value)} format={value => `Level ${value}`} />
               <ChoiceRow label="CUET term" values={academicTerms} value={form.term} onChange={value => setValue('term', value)} format={value => `Term ${value}`} />
               <ChoiceRow label="Course type" values={adminCourseTypes} value={form.courseType} onChange={value => setValue('courseType', value)} />
+              <ChoiceRow label="Course status" values={['active', 'archived', 'draft'] as CourseStatus[]} value={form.status} onChange={value => setValue('status', value)} format={value => value.charAt(0).toUpperCase() + value.slice(1)} />
               <Field label="Tags (optional, comma separated)" value={form.tags} onChangeText={value => setValue('tags', value)} placeholder="mobile, frontend, android" />
 
               <Text className="mb-2 text-sm font-semibold text-ink dark:text-white">Assign teachers</Text>

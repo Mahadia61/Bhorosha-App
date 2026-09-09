@@ -7,6 +7,18 @@ npm install
 npm run start
 ```
 
+For a physical Android device, start Expo with a reachable tunnel:
+
+```powershell
+npm run android
+```
+
+The Android command uses `--tunnel` because `localhost` and many LAN
+addresses are not reachable from a physical phone. It intentionally does not
+use the `--android` flag, so it does not require Android Studio, an Android
+SDK, or `adb` on the development computer. Make sure the latest Expo Go app
+is installed, then scan the QR code shown by Expo.
+
 The app reads Firebase web configuration from `.env` using the
 `EXPO_PUBLIC_FIREBASE_*` variables. Deploy the Firestore rules and indexes with:
 

@@ -3,7 +3,7 @@ export type AcademicLevel = '1' | '2' | '3' | '4'
 export type AcademicTerm = '1' | '2'
 export type CourseType = 'Theory' | 'Lab' | 'Project' | 'Sessional' | 'Other'
 export type CourseStatus = 'active' | 'archived' | 'draft'
-export type QuestionCategory = 'Course Content' | 'Exam' | 'Assignment' | 'Project' | 'Registration' | 'Other'
+export type QuestionCategory = 'Course Content' | 'Course Related' | 'Exam' | 'Assignment' | 'Project' | 'Registration' | 'Academic' | 'Advising' | 'Other'
 
 export type RatingMap = {
   teachingQuality: number
@@ -80,9 +80,9 @@ export type Review = {
   responses?: TeacherResponse[]
 }
 
-export type Professor = { id: string; name: string; department: string; designation?: string; bio?: string; photoUrl?: string }
+export type Professor = { id: string; name: string; department: string; designation?: string; email?: string; bio?: string; photoUrl?: string }
 
-export type ProfessorReview = { id: string; professorId: string; text: string; rating: number; anonymous: boolean; displayName: string | null; createdAt: number; responses?: TeacherResponse[] }
+export type ProfessorReview = { id: string; professorId: string; text: string; rating: number; aspects?: Record<string, number>; tags?: string[]; anonymous: boolean; displayName: string | null; createdAt: number; responses?: TeacherResponse[] }
 
 export type QuestionAnswer = { id: string; authorName: string; authorRole: 'student' | 'teacher'; text: string; createdAt: number }
 

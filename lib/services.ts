@@ -97,6 +97,8 @@ const reviewFrom = (id: string, data: Record<string, unknown>): Review => {
 
 const professorReviewFrom = (id: string, data: Record<string, unknown>): ProfessorReview => ({
   id, professorId: String(data.professorId ?? ''), text: String(data.text ?? ''), rating: Number(data.rating ?? 0),
+  aspects: data.aspects && typeof data.aspects === 'object' ? Object.fromEntries(Object.entries(data.aspects as Record<string, unknown>).map(([key, value]) => [key, Number(value)])) : undefined,
+  tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
   anonymous: data.anonymous !== false, displayName: typeof data.displayName === 'string' ? data.displayName : null, createdAt: Number(data.createdAt ?? 0),
 })
 
@@ -105,7 +107,7 @@ const answerFrom = (id: string, data: Record<string, unknown>): QuestionAnswer =
 })
 
 const questionFrom = (id: string, data: Record<string, unknown>): CourseQuestion => ({
-  id, courseId: String(data.courseId ?? ''), category: ['Course Content', 'Exam', 'Assignment', 'Project', 'Registration', 'Other'].includes(String(data.category)) ? String(data.category) as QuestionCategory : 'Other', text: String(data.text ?? ''), anonymous: data.anonymous !== false, createdAt: Number(data.createdAt ?? 0), answers: [],
+  id, courseId: String(data.courseId ?? ''), category: ['Course Content', 'Course Related', 'Exam', 'Assignment', 'Project', 'Registration', 'Academic', 'Advising', 'Other'].includes(String(data.category)) ? String(data.category) as QuestionCategory : 'Other', text: String(data.text ?? ''), anonymous: data.anonymous !== false, createdAt: Number(data.createdAt ?? 0), answers: [],
 })
 
 const activityFrom = (id: string, data: Record<string, unknown>): ActivityItem => ({
@@ -344,7 +346,7 @@ export const services = {
   async professors(): Promise<Professor[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'teacherDirectory'), where('active', '==', true)))
-    return snapshot.docs.map(item => ({ id: item.id, name: String(item.data().name ?? 'CUET Teacher'), department: String(item.data().department ?? ''), designation: item.data().designation ? String(item.data().designation) : undefined, bio: item.data().bio ? String(item.data().bio) : undefined, photoUrl: item.data().photoUrl ? String(item.data().photoUrl) : undefined }))
+    return snapshot.docs.map(item => ({ id: item.id, name: String(item.data().name ?? 'CUET Teacher'), department: String(item.data().department ?? ''), designation: item.data().designation ? String(item.data().designation) : undefined, email: item.data().email ? String(item.data().email) : undefined, bio: item.data().bio ? String(item.data().bio) : undefined, photoUrl: item.data().photoUrl ? String(item.data().photoUrl) : undefined }))
   },
 
   async reviews(courseId: string): Promise<Review[]> {
@@ -445,7 +447,7 @@ export const services = {
     if (!text) throw new Error('Review text is required.')
     const reviewRef = doc(collection(firestore, 'professorReviews'))
     const createdAt = Date.now()
-    const review = { professorId: input.professorId, text, rating: input.rating, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
+    const review = { professorId: input.professorId, text, rating: input.rating, aspects: input.aspects ?? {}, tags: input.tags ?? [], anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
     const batch = writeBatch(firestore)
     batch.set(reviewRef, review)
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'professorReviews', reviewRef.id), { id: reviewRef.id, ...review })

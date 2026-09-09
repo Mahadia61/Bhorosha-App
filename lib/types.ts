@@ -54,6 +54,8 @@ export type Course = {
   title: string
   credits: number
   department: string
+  /** A free-form cohort label supplied by the administrator, e.g. "2022". */
+  batch?: string
   level: AcademicLevel | null
   term: AcademicTerm | null
   courseType: CourseType | null

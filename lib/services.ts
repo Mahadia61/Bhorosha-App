@@ -78,6 +78,7 @@ const courseFrom = (id: string, data: Record<string, unknown>): Course => ({
   term: ['1', '2'].includes(String(data.term)) ? String(data.term) as AcademicTerm : null,
   courseType: ['Theory', 'Lab', 'Project', 'Sessional', 'Other'].includes(String(data.courseType)) ? String(data.courseType) as CourseType : null,
   department: String(data.department ?? ''),
+  batch: typeof data.batch === 'string' ? data.batch : undefined,
   teacherIds: Array.isArray(data.teacherIds) ? data.teacherIds.map(String) : [],
   teacherNames: Array.isArray(data.teacherNames) ? data.teacherNames.map(String) : [],
   tags: Array.isArray(data.tags) ? data.tags.map(String) : [],

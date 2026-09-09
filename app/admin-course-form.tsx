@@ -18,12 +18,13 @@ type CourseForm = {
   term: AcademicTerm | null
   courseType: CourseType | null
   department: string
+  batch: string
   teacherIds: string[]
   tags: string
   status: CourseStatus
 }
 
-const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', level: null, term: null, courseType: null, department: '', teacherIds: [], tags: '', status: 'active' })
+const emptyForm = (): CourseForm => ({ code: '', title: '', credits: '', level: null, term: null, courseType: null, department: '', batch: '', teacherIds: [], tags: '', status: 'active' })
 
 export default function AdminCourseForm() {
   const { profile } = useApp()
@@ -60,6 +61,7 @@ export default function AdminCourseForm() {
           term: course.term,
           courseType: course.courseType,
           department: course.department,
+          batch: course.batch ?? '',
           teacherIds: course.teacherIds,
           tags: course.tags.join(', '),
           status: course.status ?? 'active',
@@ -124,6 +126,7 @@ export default function AdminCourseForm() {
       term: form.term,
       courseType: form.courseType,
       department: form.department.trim().toUpperCase(),
+      batch: form.batch.trim(),
       teacherIds: selectedTeachers.map(teacher => teacher.id),
       teacherNames: selectedTeachers.map(teacher => teacher.name),
       tags: form.tags.split(',').map(tag => tag.trim()).filter(Boolean),
@@ -145,14 +148,14 @@ export default function AdminCourseForm() {
     }
   }
 
-  return <SafeAreaView className="flex-1 bg-[#F5F6F8]">
+  return <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
     <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-      <View className="flex-row items-center"><Pressable onPress={() => router.back()} className="mr-4 h-11 w-11 items-center justify-center rounded-full bg-white"><Feather name="arrow-left" size={22} color="#111318" /></Pressable><View><Text className="text-2xl font-bold text-slate-950">{courseId ? 'Edit Course' : 'Add Course'}</Text><Text className="mt-1 text-sm text-slate-500">Create a new course and assign teachers.</Text></View></View>
+      <View className="flex-row items-center"><Pressable onPress={() => router.back()} className="mr-4 h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-slate-900"><Feather name="arrow-left" size={22} color="#111318" /></Pressable><View><Text className="text-2xl font-bold text-slate-950 dark:text-white">{courseId ? 'Edit Course' : 'Add Course'}</Text><Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">Create a new course and assign teachers.</Text></View></View>
 
       {loading ? <View className="items-center py-20"><ActivityIndicator color="#4F7EF7" /><Text className="mt-3 text-sm text-muted">Loading course form…</Text></View>
         : error ? <Empty title="Course unavailable" body={error} />
           : <View className="mt-6 gap-4"><CourseFormSection icon="book-open" title="Course Information" subtitle="Basic details about the course."><View className="flex-row gap-3"><View className="flex-1"><Field label="Course code" value={form.code} onChangeText={value => setValue('code', value.toUpperCase())} placeholder="e.g. CSE 405" autoCapitalize="characters" /></View><View className="flex-1"><Field label="Course title" value={form.title} onChangeText={value => setValue('title', value)} placeholder="e.g. Mobile Application Development" /></View></View>
-              <View className="flex-row gap-3"><View className="flex-1"><Field label="Credits" value={form.credits} onChangeText={value => setValue('credits', value)} placeholder="e.g. 3" keyboardType="numeric" /></View><View className="flex-1"><Field label="Department" value={form.department} onChangeText={value => setValue('department', value.toUpperCase())} placeholder="CSE" autoCapitalize="characters" /></View></View></CourseFormSection><CourseFormSection icon="award" title="Level & Term" subtitle="Academic level and term for this course."><ChoiceRow label="CUET level" values={academicLevels} value={form.level} onChange={value => setValue('level', value)} format={value => `Level ${value}`} /><ChoiceRow label="CUET term" values={academicTerms} value={form.term} onChange={value => setValue('term', value)} format={value => `Term ${value}`} /></CourseFormSection><CourseFormSection icon="file-text" title="Course Type" subtitle="Select the type of this course."><ChoiceRow label="" values={adminCourseTypes} value={form.courseType} onChange={value => setValue('courseType', value)} /></CourseFormSection><CourseFormSection icon="tag" title="Tags (optional)" subtitle="Add relevant tags to help organize this course."><Field label="" value={form.tags} onChangeText={value => setValue('tags', value)} placeholder="e.g. mobile, frontend, android" /></CourseFormSection><CourseFormSection icon="users" title="Assign Teachers" subtitle="Select teacher profiles to assign to this course.">
+              <View className="flex-row gap-3"><View className="flex-1"><Field label="Credits" value={form.credits} onChangeText={value => setValue('credits', value)} placeholder="e.g. 3" keyboardType="numeric" /></View><View className="flex-1"><Field label="Department" value={form.department} onChangeText={value => setValue('department', value.toUpperCase())} placeholder="CSE" autoCapitalize="characters" /></View></View><Field label="Batch (optional)" value={form.batch} onChangeText={value => setValue('batch', value)} placeholder="e.g. 2022" /></CourseFormSection><CourseFormSection icon="award" title="Level & Term" subtitle="Academic level and term for this course."><ChoiceRow label="CUET level" values={academicLevels} value={form.level} onChange={value => setValue('level', value)} format={value => `Level ${value}`} /><ChoiceRow label="CUET term" values={academicTerms} value={form.term} onChange={value => setValue('term', value)} format={value => `Term ${value}`} /></CourseFormSection><CourseFormSection icon="file-text" title="Course Type" subtitle="Select the type of this course."><ChoiceRow label="" values={adminCourseTypes} value={form.courseType} onChange={value => setValue('courseType', value)} /></CourseFormSection><CourseFormSection icon="tag" title="Tags (optional)" subtitle="Add relevant tags to help organize this course."><Field label="" value={form.tags} onChangeText={value => setValue('tags', value)} placeholder="e.g. mobile, frontend, android" /></CourseFormSection><CourseFormSection icon="users" title="Assign Teachers" subtitle="Select teacher profiles to assign to this course.">
 
               <Text className="mb-2 text-sm font-semibold text-ink dark:text-white">Assign teachers</Text>
               <Text className="mb-3 text-xs leading-4 text-muted">Select teacher profiles, including teachers who have never logged in. Uncheck a teacher to remove the assignment.</Text>
@@ -186,7 +189,7 @@ export default function AdminCourseForm() {
   </SafeAreaView>
 }
 
-function CourseFormSection({ icon, title, subtitle, children }: { icon: keyof typeof Feather.glyphMap; title: string; subtitle: string; children: React.ReactNode }) { return <View className="rounded-3xl bg-white p-4 shadow-sm"><View className="mb-4 flex-row items-center gap-3"><View className="h-10 w-10 items-center justify-center rounded-xl bg-blue-100"><Feather name={icon} size={20} color="#1670F8" /></View><View><Text className="text-base font-bold text-slate-950">{title}</Text><Text className="mt-0.5 text-xs text-slate-500">{subtitle}</Text></View></View>{children}</View> }
+function CourseFormSection({ icon, title, subtitle, children }: { icon: keyof typeof Feather.glyphMap; title: string; subtitle: string; children: React.ReactNode }) { return <View className="rounded-3xl bg-white p-4 shadow-sm dark:bg-slate-900"><View className="mb-4 flex-row items-center gap-3"><View className="h-10 w-10 items-center justify-center rounded-xl bg-blue-100"><Feather name={icon} size={20} color="#1670F8" /></View><View><Text className="text-base font-bold text-slate-950 dark:text-white">{title}</Text><Text className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{subtitle}</Text></View></View>{children}</View> }
 
 function ChoiceRow<T extends string>({ label, values, value, onChange, format = item => item }: { label: string; values: T[]; value: T | null; onChange: (value: T) => void; format?: (value: T) => string }) {
   return <View className="mb-4"><Text className="mb-2 text-sm font-medium text-ink dark:text-slate-100">{label}</Text><View className="flex-row flex-wrap gap-2">{values.map(item => <Pressable key={item} onPress={() => onChange(item)} className={`rounded-xl border px-3 py-2 ${value === item ? 'border-brand bg-blue-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'}`}><Text className={`text-xs font-semibold ${value === item ? 'text-brand' : 'text-muted'}`}>{format(item)}</Text></Pressable>)}</View></View>

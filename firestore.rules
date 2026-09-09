@@ -268,7 +268,7 @@ service cloud.firestore {
       allow create: if own(userId) && validInitialProfile();
       allow update: if pendingProfileVerification(userId)
         || (request.resource.data.keys().hasAll(['teacherProfileId']) && validTeacherAccountLink(userId))
-        || (own(userId) && activeUser()
+        || (own(userId) && (activeUser() || isAdmin())
           && request.resource.data.role == resource.data.role
           && request.resource.data.email == resource.data.email
           && request.resource.data.active == resource.data.active

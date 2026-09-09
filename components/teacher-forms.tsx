@@ -92,7 +92,7 @@ export function TeacherFormScreen({ mode }: { mode: FormMode }) {
         <Pressable onPress={() => router.back()} className="h-10 w-10 items-center justify-center"><Feather name="arrow-left" size={22} color={isDark ? '#E2E8F0' : '#172038'} /></Pressable>
         <Text className="text-[17px] font-extrabold text-[#10182F] dark:text-white">{titleLabel}</Text>
         <View className="flex-row items-center gap-3">
-          <Pressable onPress={() => router.push('/student-notifications' as never)}><Feather name="bell" size={20} color={isDark ? '#E2E8F0' : '#111318'} /></Pressable>
+          <Pressable onPress={() => router.push('/student-notifications' as never)} className="relative"><Feather name="bell" size={20} color={isDark ? '#E2E8F0' : '#111318'} /><View className="absolute -right-2 -top-2 h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1"><Text className="text-[9px] font-bold text-white">3</Text></View></Pressable>
           <Pressable onPress={() => router.push('/(tabs)/profile' as never)} className="h-9 w-9 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="text-xs font-bold text-brand">{profile?.name.trim().charAt(0).toUpperCase() || 'S'}</Text></Pressable>
         </View>
       </View>

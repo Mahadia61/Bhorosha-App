@@ -1,3 +1,4 @@
+import { teachesCourse } from '@/lib/teacher-profiles'
 import { useEffect, useState } from 'react'
 import { Redirect } from 'expo-router'
 import { Text, View } from 'react-native'
@@ -14,7 +15,7 @@ export default function TeacherInsights() {
   useEffect(() => {
     if (!profile) return
     void services.courses().then(all => {
-      const assigned = all.filter(course => course.teacherIds.includes(profile.id))
+      const assigned = all.filter(course => teachesCourse(course, profile))
       setCourses(assigned)
       return Promise.all(assigned.map(course => services.reviews(course.id)))
     }).then(groups => setReviews(groups.flat())).catch(() => { setCourses([]); setReviews([]) })

@@ -1,3 +1,4 @@
+import { teachesCourse } from '@/lib/teacher-profiles'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native'
 import { Redirect, useLocalSearchParams } from 'expo-router'
@@ -25,12 +26,12 @@ export default function TeacherCourseDetail() {
     if (!profile) return
     void Promise.all([services.course(id), services.reviews(id), services.courseQuestions(id)])
       .then(([nextCourse, nextReviews, nextQuestions]) => {
-        if (!nextCourse || !nextCourse.teacherIds.includes(profile.id)) throw new Error('This course is not assigned to you.')
+        if (!nextCourse || !teachesCourse(nextCourse, profile)) throw new Error('This course is not assigned to you.')
         setCourse(nextCourse); setReviews(nextReviews); setQuestions(nextQuestions)
       })
       .catch(reason => Alert.alert('Could not load course', reason instanceof Error ? reason.message : 'Please try again.'))
       .finally(() => setLoading(false))
-  }, [id, profile?.id])
+  }, [id, profile?.id, profile?.teacherProfileId])
 
   const average = reviews.length ? reviews.reduce((sum, review) => sum + reviewAverage(review), 0) / reviews.length : 0
   const answered = questions.filter(question => (question.answers ?? []).some(answer => answer.authorRole === 'teacher')).length

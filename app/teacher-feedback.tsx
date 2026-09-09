@@ -1,3 +1,4 @@
+import { teachesCourse } from '@/lib/teacher-profiles'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -12,7 +13,7 @@ import { TeacherHeader } from '@/components/TeacherHeader'
 
 export default function TeacherFeedback({ inTab = false }: { inTab?: boolean }) {
   const { profile } = useApp(); const [courses, setCourses] = useState<Course[]>([]); const [reviews, setReviews] = useState<Review[]>([]); const [teacherReviews, setTeacherReviews] = useState<ProfessorReview[]>([]); const [search, setSearch] = useState(''); const [summary, setSummary] = useState(''); const [summarizing, setSummarizing] = useState(false); const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({}); const [respondingId, setRespondingId] = useState<string | null>(null); const [section, setSection] = useState<'course' | 'teacher'>('course')
-  const load = async () => { if (!profile) return; const assigned = (await services.courses()).filter(course => course.teacherIds.includes(profile.id)); const [courseReviews, personalReviews] = await Promise.all([Promise.all(assigned.map(course => services.reviews(course.id))), services.professorReviews(profile.id)]); setCourses(assigned); setReviews(courseReviews.flat()); setTeacherReviews(personalReviews) }
+  const load = async () => { if (!profile) return; const assigned = (await services.courses()).filter(course => teachesCourse(course, profile)); const [courseReviews, personalReviews] = await Promise.all([Promise.all(assigned.map(course => services.reviews(course.id))), services.teachingProfileReviews(profile)]); setCourses(assigned); setReviews(courseReviews.flat()); setTeacherReviews(personalReviews) }
   useEffect(() => { void load() }, [profile])
   const visible = useMemo(() => reviews.filter(review => review.text.toLowerCase().includes(search.toLowerCase())), [reviews, search])
   const respondToPersonalReview = async (reviewId: string) => { const key = `professor-${reviewId}`; const response = responseDrafts[key]?.trim(); if (!response) return Alert.alert('Write a response', 'Enter a constructive response in বাংলা or English.'); setRespondingId(key); try { await services.addProfessorResponse(reviewId, response); setResponseDrafts(current => ({ ...current, [key]: '' })); await load() } catch (reason) { Alert.alert('Could not post response', reason instanceof Error ? reason.message : 'Please try again.') } finally { setRespondingId(null) } }

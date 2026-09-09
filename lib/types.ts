@@ -17,6 +17,8 @@ export type RatingMap = {
 
 export type Profile = {
   id: string
+  teacherProfileId?: string
+  teacherLinkPending?: boolean
   name: string
   email: string
   role: Role
@@ -33,6 +35,17 @@ export type Profile = {
   currentTerm?: AcademicTerm
   warningCount?: number
   createdAt?: number
+}
+
+// Independent of users/{uid}; legacy teachers retain their existing UID as the
+// profile ID so existing course assignments and professor reviews stay valid.
+export type TeacherProfile = {
+  id: string
+  name: string
+  department: string
+  designation: string
+  email: string
+  linkedUserId: string | null
 }
 
 export type Course = {

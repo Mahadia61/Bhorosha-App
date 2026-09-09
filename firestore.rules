@@ -17,7 +17,14 @@ service cloud.firestore {
     }
     function isStudent() { return activeUser() && userProfile().data.role == 'student'; }
     function isTeacher() { return activeUser() && userProfile().data.role == 'teacher'; }
-    function isAdmin() { return activeUser() && userProfile().data.role == 'admin'; }
+    // Admin records created before the `active` field was introduced are still
+    // legitimate administrators. The client likewise treats a missing field as
+    // active, so do not make admin access depend on that optional legacy field.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userProfile().data.role == 'admin';
+    }
     function course(courseId) { return get(/databases/$(database)/documents/courses/$(courseId)); }
     function courseExists(courseId) { return exists(/databases/$(database)/documents/courses/$(courseId)); }
     function studentCanAccessCourse(courseId) {
@@ -26,14 +33,23 @@ service cloud.firestore {
     }
     function teacherTeaches(courseId) {
       return isTeacher() && courseExists(courseId)
-        && request.auth.uid in course(courseId).data.teacherIds;
+        && (request.auth.uid in course(courseId).data.teacherIds
+          || userProfile().data.get('teacherProfileId', '') in course(courseId).data.teacherIds);
+    }
+    function ownsTeacherProfile(teacherId) {
+      return isTeacher() && (request.auth.uid == teacherId || userProfile().data.get('teacherProfileId', '') == teacherId);
+    }
+    function teacherEmailOwner(email) {
+      return signedIn() && request.auth.token.email != null
+        && request.auth.token.email.lower() == email
+        && request.auth.token.email.lower().matches('^u[0-9]+@teacher\\.cuet\\.ac\\.bd$');
     }
     function canReadCourseContent(courseId) {
       return isAdmin() || studentCanAccessCourse(courseId) || teacherTeaches(courseId);
     }
     function canReadProfessorContent(professorId) {
       return isAdmin()
-        || (isTeacher() && request.auth.uid == professorId)
+        || ownsTeacherProfile(professorId)
         || (isStudent()
           && exists(/databases/$(database)/documents/teacherDirectory/$(professorId))
           && get(/databases/$(database)/documents/teacherDirectory/$(professorId)).data.department == userProfile().data.department);
@@ -190,11 +206,68 @@ service cloud.firestore {
       return index.reviewId == reviewId && index.courseId == request.resource.data.courseId;
     }
 
+    function validTeacherProfile() {
+      let value = request.resource.data;
+      return value.keys().hasAll(['name', 'department', 'designation', 'email', 'linkedUserId'])
+        && value.keys().hasOnly(['name', 'department', 'designation', 'email', 'linkedUserId'])
+        && validText(value.name, 100) && validText(value.department, 24)
+        && validDesignation(value.designation) && validOptionalText(value.email, 254)
+        && (value.email == '' || value.email.matches('^[^ /@]+@[^ /@]+[.][^ /@]+$'))
+        && (value.linkedUserId == null || value.linkedUserId is string);
+    }
+    function validTeacherAccountLink(userId) {
+      let teacherId = request.resource.data.teacherProfileId;
+      let teacher = getAfter(/databases/$(database)/documents/teacherProfiles/$(teacherId)).data;
+      return resource.data.role == 'teacher' && !('teacherProfileId' in resource.data)
+        && validText(teacherId, 128)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teacherProfileId', 'updatedAt'])
+        && validFreshClientTime(request.resource.data.updatedAt)
+        && teacher.linkedUserId == userId
+        && (isAdmin() || (own(userId) && isTeacher() && request.auth.token.email_verified == true
+          && teacher.email == request.auth.token.email.lower()));
+    }
+
+    // Private management records. Emails never enter the public directory.
+    match /teacherProfileMigrations/{migrationId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && migrationId == 'v1'
+        && request.resource.data.keys().hasOnly(['accountIds']) && request.resource.data.accountIds is list;
+      allow update, delete: if false;
+    }
+    match /teacherProfiles/{teacherId} {
+      allow read: if isAdmin() || teacherEmailOwner(resource.data.email)
+        || (isTeacher() && resource.data.linkedUserId == request.auth.uid);
+      allow create: if isAdmin() && validTeacherProfile()
+        && (request.resource.data.linkedUserId == null
+          || (get(/databases/$(database)/documents/users/$(request.resource.data.linkedUserId)).data.role == 'teacher'
+            && getAfter(/databases/$(database)/documents/users/$(request.resource.data.linkedUserId)).data.teacherProfileId == teacherId));
+      allow update: if (isAdmin() && validTeacherProfile()
+          && request.resource.data.linkedUserId == resource.data.linkedUserId
+          && (resource.data.linkedUserId == null || request.resource.data.email == resource.data.email))
+        || (isTeacher() && request.auth.token.email_verified == true
+          && resource.data.email == request.auth.token.email.lower()
+          && resource.data.linkedUserId == null
+          && request.resource.data.linkedUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId'])
+          && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherProfileId == teacherId);
+      allow delete: if false;
+    }
+    match /teacherProfileEmails/{email} {
+      allow get: if isAdmin() || teacherEmailOwner(email);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['teacherProfileId'])
+        && request.resource.data.teacherProfileId is string
+        && getAfter(/databases/$(database)/documents/teacherProfiles/$(request.resource.data.teacherProfileId)).data.email == email;
+      allow delete: if isAdmin();
+    }
+
     match /users/{userId} {
       allow get: if own(userId) || isAdmin();
       allow list: if isAdmin();
       allow create: if own(userId) && validInitialProfile();
       allow update: if pendingProfileVerification(userId)
+        || (request.resource.data.keys().hasAll(['teacherProfileId']) && validTeacherAccountLink(userId))
         || (own(userId) && activeUser()
           && request.resource.data.role == resource.data.role
           && request.resource.data.email == resource.data.email
@@ -291,19 +364,23 @@ service cloud.firestore {
     }
 
     match /teacherDirectory/{teacherId} {
-      allow read: if activeUser() && resource.data.active == true;
-      allow create: if own(teacherId) && isTeacher() && validDirectory()
+      allow get: if own(teacherId) && isTeacher();
+      allow read: if isAdmin() || (activeUser() && resource.data.active == true);
+      allow create: if own(teacherId) && isTeacher() && !('teacherProfileId' in userProfile().data) && validDirectory()
         && request.resource.data.name == userProfile().data.name && request.resource.data.department == userProfile().data.department
         && request.resource.data.designation == userProfile().data.designation
         && request.resource.data.active == true;
-      allow create: if isAdmin() && exists(/databases/$(database)/documents/users/$(teacherId))
-        && get(/databases/$(database)/documents/users/$(teacherId)).data.role == 'teacher'
-        && request.resource.data.name == get(/databases/$(database)/documents/users/$(teacherId)).data.name
-        && request.resource.data.department == get(/databases/$(database)/documents/users/$(teacherId)).data.department
-        && request.resource.data.designation == get(/databases/$(database)/documents/users/$(teacherId)).data.designation
-        && request.resource.data.active == true
-        && validDirectory();
-      allow update: if (own(teacherId) && isTeacher()
+      allow create, update: if isAdmin() && validDirectory();
+      allow update: if own(teacherId) && isTeacher()
+        && getAfter(/databases/$(database)/documents/users/$(teacherId)).data.get('teacherProfileId', teacherId) != teacherId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt'])
+        && request.resource.data.active == false && validFreshClientTime(request.resource.data.updatedAt);
+      allow update: if isTeacher() && userProfile().data.get('teacherProfileId', '') == teacherId
+        && validDirectory()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bio', 'photoUrl', 'updatedAt'])
+        && request.resource.data.bio == getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('bio', '')
+        && request.resource.data.photoUrl == getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('photoUrl', '');
+      allow update: if (own(teacherId) && isTeacher() && !('teacherProfileId' in userProfile().data)
           && validDirectory() && request.resource.data.active == true
           && request.resource.data.name == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.name
           && request.resource.data.department == getAfter(/databases/$(database)/documents/users/$(teacherId)).data.department
@@ -313,7 +390,8 @@ service cloud.firestore {
     }
 
     match /courses/{courseId} {
-      allow read: if activeUser();
+      allow read: if isAdmin() || isStudent() || (isTeacher()
+        && (request.auth.uid in resource.data.teacherIds || userProfile().data.get('teacherProfileId', '') in resource.data.teacherIds));
       allow create, update, delete: if isAdmin();
     }
 
@@ -363,7 +441,7 @@ service cloud.firestore {
       match /teacherResponses/{responseId} {
         allow read: if canReadProfessorContent(get(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId);
         allow create: if isTeacher()
-          && get(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId == request.auth.uid
+          && ownsTeacherProfile(get(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId)
           && request.resource.data.keys().hasOnly(['teacherName', 'text', 'createdAt'])
           && request.resource.data.teacherName == userProfile().data.name
           && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt);
@@ -418,7 +496,7 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isTeacher() && resource.data.recipientId == request.auth.uid;
+      allow read: if ownsTeacherProfile(resource.data.recipientId);
       allow create: if isStudent()
         && request.resource.data.keys().hasOnly(['recipientId', 'questionId', 'courseId', 'title', 'body', 'read', 'createdAt'])
         && request.resource.data.recipientId is string
@@ -430,7 +508,7 @@ service cloud.firestore {
         && validFreshClientTime(request.resource.data.createdAt)
         && studentCanAccessCourse(request.resource.data.courseId)
         && request.resource.data.recipientId in course(request.resource.data.courseId).data.teacherIds;
-      allow update: if isTeacher() && resource.data.recipientId == request.auth.uid
+      allow update: if ownsTeacherProfile(resource.data.recipientId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
       allow delete: if false;

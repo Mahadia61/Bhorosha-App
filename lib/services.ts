@@ -2,6 +2,7 @@ import { EmailAuthProvider, createUserWithEmailAndPassword, deleteUser, onAuthSt
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore'
 import { auth, db, firebaseEnabled } from './firebase'
 import { sanitizeCommunityText } from './content-filter'
+import { adminTeacherProfiles, courseTeacherAssignments, ensureTeacherAccount, linkTeacherAccount, saveTeacherProfile, teacherIdentityIds, teacherProfiles, teachesCourse } from './teacher-profiles'
 import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, AppNotificationCategory, ContentType, Course, CourseGuide, CourseQuestion, CourseStatus, CourseType, ModerationAppeal, ModerationHistoryItem, Professor, ProfessorReview, Profile, QuestionAnswer, QuestionCategory, RatingMap, Report, ReportReason, Review, Role, TeacherResponse } from './types'
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
@@ -37,6 +38,7 @@ function requireFirebase() {
 
 const profileFrom = (id: string, data: Record<string, unknown>): Profile => ({
   id,
+  teacherProfileId: typeof data.teacherProfileId === 'string' ? data.teacherProfileId : undefined,
   name: String(data.name ?? ''),
   email: String(data.email ?? ''),
   role: data.role as Role,
@@ -120,6 +122,7 @@ async function firebaseProfile(userId: string): Promise<Profile | null> {
 
 async function authenticatedProfile(userId: string, emailVerified: boolean): Promise<Profile | null> {
   const profile = await firebaseProfile(userId)
+  if (profile?.role === 'teacher') return linkTeacherAccount(profile)
   if (!profile || profile.role !== 'student') return profile
   return { ...profile, emailVerified }
 }
@@ -153,10 +156,25 @@ async function saveActivity(userId: string, id: string, data: Omit<ActivityItem,
 
 export const services = {
   firebaseEnabled,
+  adminTeacherProfiles,
+  teacherProfiles,
+  saveTeacherProfile,
 
   subscribeToSession(callback: (profile: Profile | null) => void) {
-    if (!firebaseEnabled || !auth) { callback(null); return () => undefined }
-    return onAuthStateChanged(auth, user => { void (user ? authenticatedProfile(user.uid, user.emailVerified) : Promise.resolve(null)).then(callback).catch(() => callback(null)) })
+    if (!firebaseEnabled || !auth || !db) { callback(null); return () => undefined }
+    const firestore = db
+    let stopProfile: Unsubscribe | undefined
+    let generation = 0
+    const stopAuth = onAuthStateChanged(auth, user => {
+      stopProfile?.()
+      generation += 1
+      if (!user) { callback(null); return }
+      stopProfile = onSnapshot(doc(firestore, 'users', user.uid), () => {
+        const current = ++generation
+        void authenticatedProfile(user.uid, user.emailVerified).then(profile => { if (current === generation) callback(profile) }).catch(() => { if (current === generation) callback(null) })
+      }, () => callback(null))
+    })
+    return () => { generation += 1; stopProfile?.(); stopAuth() }
   },
 
   async session(): Promise<Profile | null> {
@@ -210,7 +228,11 @@ export const services = {
       await firebaseSignOut(firebaseAuth).catch(() => undefined)
       throw firebaseSignupError(reason)
     }
-    if (role === 'teacher') await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom(profile))
+    if (role === 'teacher') {
+      const linked = await linkTeacherAccount(profile)
+      if (!linked.teacherProfileId && !linked.teacherLinkPending) await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom(profile))
+      return linked
+    }
     if (requiresEmailVerification) await sendEmailVerification(credential.user)
     return profile
   },
@@ -220,6 +242,7 @@ export const services = {
     const normalized = normalizeEmail(email)
     if (!normalized || !password) throw new Error('Enter both email and password.')
     const credential = await signInWithEmailAndPassword(firebaseAuth, normalized, password)
+    await ensureTeacherAccount()
     const profile = await authenticatedProfile(credential.user.uid, credential.user.emailVerified)
     if (!profile) { await firebaseSignOut(firebaseAuth); throw new Error('Your account profile is not set up. Ask an administrator to create it.') }
     if (profile.role === 'student' && credential.user.emailVerified === false) return { ...profile, emailVerified: false, active: false }
@@ -235,7 +258,7 @@ export const services = {
     const { auth: firebaseAuth } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in again before requesting verification.')
     const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
-    if (profile?.role !== 'student') throw new Error('Teacher accounts do not require email verification.')
+    if (!profile || !['student', 'teacher'].includes(profile.role)) throw new Error('This account does not require email verification.')
     await sendEmailVerification(firebaseAuth.currentUser)
   },
 
@@ -247,10 +270,10 @@ export const services = {
     await firebaseAuth.currentUser.getIdToken(true)
     const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
     if (!profile) throw new Error('Your account profile is not set up.')
+    if (profile.role === 'teacher') return linkTeacherAccount(profile)
     // This is deliberately two writes. The profile must become active before the
     // teacher-directory rule permits creation of a public teaching profile.
     await setDoc(doc(firestore, 'users', profile.id), { emailVerified: true, active: true, updatedAt: Date.now() }, { merge: true })
-    if (profile.role === 'teacher') await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom({ ...profile, emailVerified: true, active: true }))
     return { ...profile, emailVerified: true, active: true }
   },
 
@@ -298,15 +321,22 @@ export const services = {
     if (next.photoUrl) value.photoUrl = next.photoUrl
     const batch = writeBatch(firestore)
     batch.set(doc(firestore, 'users', next.id), value, { merge: true })
-    if (next.role === 'teacher') batch.set(doc(firestore, 'teacherDirectory', next.id), directoryFrom(next), { merge: true })
+    if (next.role === 'teacher' && !next.teacherProfileId && !next.teacherLinkPending) batch.set(doc(firestore, 'teacherDirectory', next.id), directoryFrom(next), { merge: true })
+    if (next.role === 'teacher' && next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.teacherProfileId), { bio: next.bio ?? '', photoUrl: next.photoUrl ?? '', updatedAt: Date.now() }, { merge: true })
     await batch.commit()
     return next
   },
 
   async courses(): Promise<Course[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(collection(firestore, 'courses'))
-    return snapshot.docs.map(item => courseFrom(item.id, item.data())).sort((a, b) => a.code.localeCompare(b.code))
+    const profile = await this.session()
+    const source = profile?.role === 'teacher' ? query(collection(firestore, 'courses'), where('teacherIds', 'array-contains-any', teacherIdentityIds(profile))) : collection(firestore, 'courses')
+    const [snapshot, teachers] = await Promise.all([getDocs(source), this.professors()])
+    const names = new Map(teachers.map(teacher => [teacher.id, teacher.name]))
+    return snapshot.docs.map(item => {
+      const course = courseFrom(item.id, item.data())
+      return { ...course, teacherNames: course.teacherIds.map((id, index) => names.get(id) ?? course.teacherNames[index] ?? 'Teacher') }
+    }).sort((a, b) => a.code.localeCompare(b.code))
   },
   async course(id: string) { return (await this.courses()).find(course => course.id === id) ?? null },
 
@@ -401,6 +431,10 @@ export const services = {
     const snapshot = await getDocs(query(collection(firestore, 'professorReviews'), where('professorId', '==', professorId), orderBy('createdAt', 'desc')))
     return Promise.all(snapshot.docs.map(async item => ({ ...professorReviewFrom(item.id, item.data()), responses: await firebaseProfessorResponses(item.id) })))
   },
+  async teachingProfileReviews(profile: Profile): Promise<ProfessorReview[]> {
+    const linked = await linkTeacherAccount(profile)
+    return (await Promise.all(teacherIdentityIds(linked).map(id => this.professorReviews(id)))).flat().sort((a, b) => b.createdAt - a.createdAt)
+  },
   async addProfessorReview(input: Omit<ProfessorReview, 'id' | 'createdAt' | 'displayName'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before submitting a review.')
@@ -445,7 +479,8 @@ export const services = {
     if (!responseText) throw new Error('Write a response before posting.')
     const review = await getDoc(doc(firestore, 'professorReviews', reviewId))
     if (!review.exists()) throw new Error('This review no longer exists.')
-    if (review.data().professorId !== profile.id) throw new Error('You can respond only to feedback about your own teaching profile.')
+    const linked = await linkTeacherAccount(profile)
+    if (!teacherIdentityIds(linked).includes(review.data().professorId)) throw new Error('You can respond only to feedback about your own teaching profile.')
     const responseRef = doc(collection(firestore, 'professorReviews', reviewId, 'teacherResponses'))
     await setDoc(responseRef, { teacherName: profile.name, text: responseText, createdAt: Date.now() })
   },
@@ -477,7 +512,9 @@ export const services = {
     await batch.commit()
   },
   async teacherQuestions(teacherId: string): Promise<CourseQuestion[]> {
-    const assignedCourses = (await this.courses()).filter(course => course.teacherIds.includes(teacherId))
+    const profile = await this.session()
+    if (!profile || profile.role !== 'teacher' || profile.id !== teacherId) throw new Error('Sign in as the assigned teacher.')
+    const assignedCourses = (await this.courses()).filter(course => teachesCourse(course, profile))
     const all = await Promise.all(assignedCourses.map(course => this.courseQuestions(course.id)))
     return all.flat().sort((a, b) => b.createdAt - a.createdAt)
   },
@@ -562,14 +599,23 @@ export const services = {
   },
   async teacherNotifications(userId: string): Promise<AppNotification[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(query(collection(firestore, 'notifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')))
+    const profile = await this.session()
+    if (!profile || profile.id !== userId) throw new Error('Sign in to read your notifications.')
+    const snapshot = await getDocs(query(collection(firestore, 'notifications'), where('recipientId', 'in', teacherIdentityIds(profile)), orderBy('createdAt', 'desc')))
     return snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
   },
   subscribeTeacherNotifications(userId: string, onChange: (notifications: AppNotification[]) => void, onError: (reason: Error) => void): Unsubscribe {
     const { db: firestore } = requireFirebase()
-    return onSnapshot(query(collection(firestore, 'notifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')), snapshot => {
+    let disposed = false
+    let unsubscribe: Unsubscribe | undefined
+    void this.session().then(profile => {
+      if (disposed) return
+      if (!profile || profile.id !== userId) throw new Error('Sign in to read your notifications.')
+      unsubscribe = onSnapshot(query(collection(firestore, 'notifications'), where('recipientId', 'in', teacherIdentityIds(profile)), orderBy('createdAt', 'desc')), snapshot => {
       onChange(snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) })))
-    }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch notifications.')))
+      }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch notifications.')))
+    }).catch(reason => { if (!disposed) onError(reason instanceof Error ? reason : new Error('Unable to watch notifications.')) })
+    return () => { disposed = true; unsubscribe?.() }
   },
   async markTeacherNotificationRead(notificationId: string) {
     const { db: firestore } = requireFirebase()
@@ -685,16 +731,18 @@ export const services = {
   },
   async createCourse(input: Omit<Course, 'id'>) {
     const { db: firestore } = requireFirebase()
-    const value = { ...input, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), createdAt: Date.now(), updatedAt: Date.now() }
-    if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.teacherIds.length || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, type, and at least one assigned teacher are required.')
+    const assignments = await courseTeacherAssignments(input.teacherIds)
+    const value = { ...input, ...assignments, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), createdAt: Date.now(), updatedAt: Date.now() }
+    if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, and type are required.')
     const ref = doc(collection(firestore, 'courses'))
     await setDoc(ref, value)
     return { id: ref.id, ...value }
   },
   async updateCourse(courseId: string, input: Omit<Course, 'id'>) {
     const { db: firestore } = requireFirebase()
-    const value = { ...input, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), updatedAt: Date.now() }
-    if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.teacherIds.length || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, type, and at least one assigned teacher are required.')
+    const assignments = await courseTeacherAssignments(input.teacherIds)
+    const value = { ...input, ...assignments, status: input.status ?? 'active', code: input.code.trim().toUpperCase(), title: input.title.trim(), department: input.department.trim().toUpperCase(), tags: input.tags.map(tag => tag.trim()).filter(Boolean), updatedAt: Date.now() }
+    if (!value.code || !value.title || !Number.isFinite(value.credits) || value.credits <= 0 || !value.level || !value.term || !value.courseType) throw new Error('Course code, title, valid credits, CUET level, term, and type are required.')
     await setDoc(doc(firestore, 'courses', courseId), value, { merge: true })
     return { id: courseId, ...value }
   },

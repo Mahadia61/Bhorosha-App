@@ -7,7 +7,9 @@ const icons = { overview: 'grid', courses: 'book-open', members: 'users', modera
 export default function AdminTabsLayout() {
   const { profile, ready, isDark } = useApp()
   if (ready && profile?.role !== 'admin') return <Redirect href="/" />
-  return <Tabs screenOptions={({ route }) => ({ headerShown: false, tabBarActiveTintColor: '#4F7EF7', tabBarInactiveTintColor: isDark ? '#94A3B8' : '#64748B', tabBarStyle: { backgroundColor: isDark ? '#0F172A' : '#FFFFFF', borderTopColor: isDark ? '#1E293B' : '#E2E8F0' }, tabBarIcon: ({ color, size }) => <Feather name={icons[route.name as keyof typeof icons]} size={size} color={color} /> })}>
+  // Each redesigned admin screen owns the reference-style navigation bar so
+  // it remains visually identical across the primary pages and admin tools.
+  return <Tabs screenOptions={({ route }) => ({ headerShown: false, tabBarStyle: { display: 'none' }, tabBarIcon: ({ color, size }) => <Feather name={icons[route.name as keyof typeof icons]} size={size} color={color} /> })}>
     <Tabs.Screen name="overview" options={{ title: 'Overview' }} />
     <Tabs.Screen name="courses" options={{ title: 'Courses' }} />
     <Tabs.Screen name="members" options={{ title: 'Members' }} />

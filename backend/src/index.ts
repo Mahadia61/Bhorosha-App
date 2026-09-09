@@ -8,7 +8,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import multer from 'multer'
 
 type Role = 'student' | 'teacher' | 'admin'
-type Profile = { uid: string; name: string; department: string; role: Role; active: boolean }
+type Profile = { uid: string; teacherProfileId?: string; name: string; department: string; role: Role; active: boolean }
 type AuthenticatedRequest = Request & { profile?: Profile }
 type SummarySubject = 'course' | 'teacher' | 'assignedCourses'
 type ReviewRecord = { text: string; score: number }
@@ -83,7 +83,7 @@ async function requireProfile(request: AuthenticatedRequest, response: Response,
     if (!snapshot.exists || !data || data.active !== true || !validRole || (requiresVerifiedEmail && data.emailVerified !== true)) {
       return response.status(403).json({ error: 'This Bhorosha account is inactive or not configured.' })
     }
-    request.profile = { uid: decoded.uid, name: String(data.name ?? ''), department: String(data.department ?? ''), role: role as Role, active: true }
+    request.profile = { uid: decoded.uid, teacherProfileId: typeof data.teacherProfileId === 'string' ? data.teacherProfileId : undefined, name: String(data.name ?? ''), department: String(data.department ?? ''), role: role as Role, active: true }
     return next()
   } catch {
     return response.status(401).json({ error: 'Your sign-in token is invalid or expired.' })
@@ -97,7 +97,7 @@ async function canReadCourse(profile: Profile, courseId: string) {
   const teacherIds = Array.isArray(course.teacherIds) ? course.teacherIds.map(String) : []
   const allowed = profile.role === 'admin'
     || (profile.role === 'student' && course.department === profile.department)
-    || (profile.role === 'teacher' && teacherIds.includes(profile.uid))
+    || (profile.role === 'teacher' && (teacherIds.includes(profile.uid) || teacherIds.includes(profile.teacherProfileId ?? '')))
   return allowed ? course : null
 }
 
@@ -136,14 +136,14 @@ async function reviewSource(profile: Profile, type: SummarySubject, subjectId?: 
     const teacher = await firestore.collection('teacherDirectory').doc(subjectId).get()
     const teacherData = teacher.data()
     const allowed = profile.role === 'admin'
-      || profile.uid === subjectId
+      || (profile.role === 'teacher' && (profile.uid === subjectId || profile.teacherProfileId === subjectId))
       || (profile.role === 'student' && teacherData?.department === profile.department)
     if (!teacher.exists || !teacherData || !allowed) throw new Error('You cannot summarize this teacher.')
     const snapshot = await firestore.collection('professorReviews').where('professorId', '==', subjectId).limit(50).get()
     return { label: 'this teacher', reviews: snapshot.docs.map(document => ({ text: cleanText(document.data().text), score: Number(document.data().rating) })).filter(review => review.text && Number.isFinite(review.score)) }
   }
   if (profile.role !== 'teacher') throw new Error('Only teachers can summarize assigned-course feedback.')
-  const courses = await firestore.collection('courses').where('teacherIds', 'array-contains', profile.uid).limit(10).get()
+  const courses = await firestore.collection('courses').where('teacherIds', 'array-contains-any', [...new Set([profile.uid, profile.teacherProfileId].filter((id): id is string => Boolean(id)))]).limit(10).get()
   const reviewSnapshots = await Promise.all(courses.docs.map(course => firestore.collection('courseReviews').where('courseId', '==', course.id).limit(20).get()))
   const reviews = reviewSnapshots.flatMap(snapshot => snapshot.docs).slice(0, 50).map(document => {
     const data = document.data()

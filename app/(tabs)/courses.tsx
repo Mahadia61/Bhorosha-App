@@ -1,3 +1,4 @@
+import { teachesCourse } from '@/lib/teacher-profiles'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
@@ -13,7 +14,7 @@ export default function Courses() {
   const [courses, setCourses] = useState<Course[]>([]); const [search, setSearch] = useState(''); const [department, setDepartment] = useState<string | null>(null); const [level, setLevel] = useState<AcademicLevel | null>(null); const [term, setTerm] = useState<AcademicTerm | null>(null); const [credit, setCredit] = useState<number | null>(null); const [courseType, setCourseType] = useState<CourseType | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
   const load = useCallback(async () => { setLoading(true); setError(''); try { setCourses(await services.courses()) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load courses.') } finally { setLoading(false) } }, [])
   useEffect(() => { void load() }, [load])
-  const departmental = useMemo(() => profile?.role === 'student' ? courses.filter(course => course.department === profile.department) : profile?.role === 'teacher' ? courses.filter(course => course.teacherIds.includes(profile.id)) : courses, [courses, profile])
+  const departmental = useMemo(() => profile?.role === 'student' ? courses.filter(course => course.department === profile.department) : profile?.role === 'teacher' ? courses.filter(course => teachesCourse(course, profile)) : courses, [courses, profile])
   const departmentOptions = useMemo(() => [...new Set(departmental.map(course => course.department))].sort(), [departmental])
   const creditOptions = useMemo(() => [...new Set(departmental.map(course => course.credits))].sort((a, b) => a - b), [departmental])
   const visible = useMemo(() => departmental.filter(course => {

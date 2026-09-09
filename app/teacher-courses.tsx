@@ -1,3 +1,4 @@
+import { teachesCourse } from '@/lib/teacher-profiles'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native'
 import { router, Redirect } from 'expo-router'
@@ -22,7 +23,7 @@ export default function TeacherCourses() {
     setLoading(true)
     setError('')
     try {
-      const assigned = (await services.courses()).filter(course => course.teacherIds.includes(profile.id))
+      const assigned = (await services.courses()).filter(course => teachesCourse(course, profile))
       setCourses(assigned)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to load your courses.')

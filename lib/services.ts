@@ -7,7 +7,7 @@ import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, AppNot
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const isStudentEmail = (email: string) => /^u\d+@student\.cuet\.ac\.bd$/.test(email)
-const isTeacherEmail = (email: string) => /^u\d+@teacher\.cuet\.ac\.bd$/.test(email)
+const isTeacherEmail = (email: string) => /^[^@\\s]+@cuet\.ac\.bd$/.test(email)
 const backendUrl = () => process.env.EXPO_PUBLIC_BACKEND_URL?.replace(/\/$/, '') ?? ''
 
 function adminNotificationCategory(data: Record<string, unknown>): AppNotificationCategory {
@@ -84,6 +84,13 @@ const courseFrom = (id: string, data: Record<string, unknown>): Course => ({
   tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
   status: ['active', 'archived', 'draft'].includes(String(data.status)) ? String(data.status) as CourseStatus : 'active',
 })
+
+const normalizeCourseRatings = (ratings: RatingMap): RatingMap => Object.fromEntries(
+  Object.entries(defaultRatings).map(([key, fallback]) => [
+    key,
+    Math.max(1, Math.min(5, Math.round(Number(ratings[key as keyof RatingMap] ?? fallback)))),
+  ]),
+) as RatingMap
 
 const reviewFrom = (id: string, data: Record<string, unknown>): Review => {
   const storedRatings = (data.ratings ?? {}) as Record<string, unknown>
@@ -193,7 +200,7 @@ export const services = {
     if (!name.trim() || !normalizedDepartment) throw new Error('Enter your full name and department.')
     if (password.length < 8) throw new Error('Use a password with at least 8 characters.')
     if (role === 'student' && !isStudentEmail(normalized)) throw new Error('Use u{ID}@student.cuet.ac.bd for a student account.')
-    if (role === 'teacher' && !isTeacherEmail(normalized)) throw new Error('Use u{ID}@teacher.cuet.ac.bd for a teacher account.')
+    if (role === 'teacher' && !isTeacherEmail(normalized)) throw new Error('Use name@cuet.ac.bd for a teacher account.')
     if (role === 'teacher' && !designation?.trim()) throw new Error('Choose your teaching position.')
     if (role === 'student' && (!studentDetails?.batch.trim() || !studentDetails.studentId.trim() || !studentDetails.currentLevel || !studentDetails.currentTerm)) throw new Error('Add your batch, student ID, current level, and current term.')
 
@@ -351,8 +358,9 @@ export const services = {
 
   async reviews(courseId: string): Promise<Review[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(query(collection(firestore, 'courseReviews'), where('courseId', '==', courseId), orderBy('createdAt', 'desc')))
-    return Promise.all(snapshot.docs.map(async item => ({ ...reviewFrom(item.id, item.data()), responses: await firebaseTeacherResponses(item.id) })))
+    const snapshot = await getDocs(query(collection(firestore, 'courseReviews'), where('courseId', '==', courseId)))
+    const reviews = await Promise.all(snapshot.docs.map(async item => ({ ...reviewFrom(item.id, item.data()), responses: await firebaseTeacherResponses(item.id) })))
+    return reviews.sort((left, right) => right.createdAt - left.createdAt)
   },
   async addReview(input: Omit<Review, 'id' | 'createdAt' | 'displayName' | 'updatedAt' | 'responses'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
@@ -363,7 +371,8 @@ export const services = {
     if (!text) throw new Error('Review text is required.')
     const reviewRef = doc(collection(firestore, 'courseReviews'))
     const createdAt = Date.now()
-    const review = { courseId: input.courseId, text, ratings: input.ratings, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
+    const ratings = normalizeCourseRatings(input.ratings)
+    const review = { courseId: input.courseId, text, ratings, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
     const batch = writeBatch(firestore)
     batch.set(reviewRef, review)
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'courseReviews', reviewRef.id), { id: reviewRef.id, ...review })
@@ -395,7 +404,8 @@ export const services = {
     if (!createdAt || Date.now() - createdAt > 24 * 60 * 60 * 1000) throw new Error('The 24-hour review editing window has ended.')
     const text = sanitizeCommunityText(input.text.trim())
     if (!text) throw new Error('Review text is required.')
-    const review = { courseId: input.courseId, text, ratings: input.ratings, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt, updatedAt: Date.now() }
+    const ratings = normalizeCourseRatings(input.ratings)
+    const review = { courseId: input.courseId, text, ratings, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt, updatedAt: Date.now() }
     const batch = writeBatch(firestore)
     batch.set(doc(firestore, 'courseReviews', reviewId), review)
     batch.set(doc(firestore, 'users', profile.id, 'courseReviews', reviewId), { id: reviewId, ...review })
@@ -431,8 +441,9 @@ export const services = {
 
   async professorReviews(professorId: string): Promise<ProfessorReview[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(query(collection(firestore, 'professorReviews'), where('professorId', '==', professorId), orderBy('createdAt', 'desc')))
-    return Promise.all(snapshot.docs.map(async item => ({ ...professorReviewFrom(item.id, item.data()), responses: await firebaseProfessorResponses(item.id) })))
+    const snapshot = await getDocs(query(collection(firestore, 'professorReviews'), where('professorId', '==', professorId)))
+    const reviews = await Promise.all(snapshot.docs.map(async item => ({ ...professorReviewFrom(item.id, item.data()), responses: await firebaseProfessorResponses(item.id) })))
+    return reviews.sort((left, right) => right.createdAt - left.createdAt)
   },
   async teachingProfileReviews(profile: Profile): Promise<ProfessorReview[]> {
     const linked = await linkTeacherAccount(profile)
@@ -447,7 +458,8 @@ export const services = {
     if (!text) throw new Error('Review text is required.')
     const reviewRef = doc(collection(firestore, 'professorReviews'))
     const createdAt = Date.now()
-    const review = { professorId: input.professorId, text, rating: input.rating, aspects: input.aspects ?? {}, tags: input.tags ?? [], anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
+    const rating = Math.max(1, Math.min(5, Math.round(input.rating)))
+    const review = { professorId: input.professorId, text, rating, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
     const batch = writeBatch(firestore)
     batch.set(reviewRef, review)
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'professorReviews', reviewRef.id), { id: reviewRef.id, ...review })
@@ -490,8 +502,8 @@ export const services = {
 
   async courseQuestions(courseId: string): Promise<CourseQuestion[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(query(collection(firestore, 'courseQuestions'), where('courseId', '==', courseId), orderBy('createdAt', 'desc')))
-    return firebaseQuestions(snapshot)
+    const snapshot = await getDocs(query(collection(firestore, 'courseQuestions'), where('courseId', '==', courseId)))
+    return (await firebaseQuestions(snapshot)).sort((left, right) => right.createdAt - left.createdAt)
   },
   async addCourseQuestion(input: Omit<CourseQuestion, 'id' | 'createdAt' | 'answers'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
@@ -644,8 +656,8 @@ export const services = {
   },
   async courseGuides(courseId: string): Promise<CourseGuide[]> {
     const { db: firestore } = requireFirebase()
-    const snapshot = await getDocs(query(collection(firestore, 'courseGuides'), where('courseId', '==', courseId), orderBy('createdAt', 'desc')))
-    return snapshot.docs.map(item => ({ id: item.id, courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? ''), text: String(item.data().text ?? ''), resources: item.data().resources ? String(item.data().resources) : undefined, createdAt: Number(item.data().createdAt ?? 0) }))
+    const snapshot = await getDocs(query(collection(firestore, 'courseGuides'), where('courseId', '==', courseId)))
+    return snapshot.docs.map(item => ({ id: item.id, courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? ''), text: String(item.data().text ?? ''), resources: item.data().resources ? String(item.data().resources) : undefined, createdAt: Number(item.data().createdAt ?? 0) })).sort((left, right) => right.createdAt - left.createdAt)
   },
   async addCourseGuide(input: Omit<CourseGuide, 'id' | 'createdAt'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
@@ -685,8 +697,8 @@ export const services = {
     const groups = await Promise.all(questions.docs.map(async question => {
       const notificationKey = question.data().notificationKey
       if (typeof notificationKey !== 'string') return []
-      const snapshot = await getDocs(query(collection(firestore, 'courseQuestionNotifications'), where('questionId', '==', question.id), where('notificationKey', '==', notificationKey), orderBy('createdAt', 'desc')))
-      return snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course update'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) }))
+      const snapshot = await getDocs(query(collection(firestore, 'courseQuestionNotifications'), where('questionId', '==', question.id), where('notificationKey', '==', notificationKey)))
+      return snapshot.docs.map(item => ({ id: item.id, questionId: String(item.data().questionId ?? ''), courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? 'Course update'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0) })).sort((left, right) => right.createdAt - left.createdAt)
     }))
     return groups.flat().sort((a, b) => b.createdAt - a.createdAt)
   },

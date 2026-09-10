@@ -9,7 +9,7 @@ import type { AcademicLevel, AcademicTerm } from '@/lib/types'
 import { useApp } from '@/providers/AppProvider'
 
 type SignUpRole = 'student' | 'teacher'
-const emailHint: Record<SignUpRole, string> = { student: 'u123456@student.cuet.ac.bd', teacher: 'u1001@teacher.cuet.ac.bd' }
+const emailHint: Record<SignUpRole, string> = { student: 'u123456@student.cuet.ac.bd', teacher: 'name@cuet.ac.bd' }
 const designations = ['Lecturer', 'Assistant Professor', 'Associate Professor', 'Professor']
 
 export default function SignUp() {
@@ -23,7 +23,7 @@ export default function SignUp() {
     setSubmitError('')
     if (!name.trim() || !email.trim() || password.length < 8 || !department.trim()) return fail('Check your details', 'Name, CUET email, department, and an 8-character password are required.')
     if (password !== confirmPassword) return fail('Passwords do not match', 'Re-enter the same password in both fields.')
-    const domain = role === 'student' ? '@student.cuet.ac.bd' : '@teacher.cuet.ac.bd'
+    const domain = role === 'student' ? '@student.cuet.ac.bd' : '@cuet.ac.bd'
     if (!email.trim().toLowerCase().endsWith(domain)) return fail('Use your CUET email', `A ${role} account requires an email ending in ${domain}.`)
     if (role === 'teacher' && !designation) return fail('Choose your teaching position', 'Select your current designation.')
     if (role === 'student' && (!batch.trim() || !studentId.trim())) return fail('Complete academic details', 'Batch and Student ID are required for students.')

@@ -25,5 +25,6 @@ export default function StudentTabsLayout() {
     <Tabs.Screen name="courses" options={{ title: 'Courses' }} />
     <Tabs.Screen name="professors" options={{ title: 'Teachers' }} />
     <Tabs.Screen name="activity" options={{ title: 'Activity' }} />
+    <Tabs.Screen name="profile" options={{ href: null }} />
   </Tabs>
 }

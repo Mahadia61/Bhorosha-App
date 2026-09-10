@@ -9,7 +9,7 @@ export default function VerifyEmail() {
   const { profile, resendEmailVerification, confirmEmailVerification, signOut } = useApp()
   const [checking, setChecking] = useState(false)
   const [sending, setSending] = useState(false)
-  const isTeacher = profile?.role === 'teacher' || profile?.email.toLowerCase().endsWith('@teacher.cuet.ac.bd') === true
+  const isTeacher = profile?.role === 'teacher' || profile?.email.toLowerCase().endsWith('@cuet.ac.bd') === true
 
   useEffect(() => {
     if (isTeacher && !profile?.teacherLinkPending) router.replace('/(teacher-tabs)/dashboard')

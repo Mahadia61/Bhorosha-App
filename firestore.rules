@@ -42,7 +42,7 @@ service cloud.firestore {
     function teacherEmailOwner(email) {
       return signedIn() && request.auth.token.email != null
         && request.auth.token.email.lower() == email
-        && request.auth.token.email.lower().matches('^u[0-9]+@teacher\\.cuet\\.ac\\.bd$');
+        && request.auth.token.email.lower().matches('^[^@ ]+@cuet\\.ac\\.bd$');
     }
     function canReadCourseContent(courseId) {
       return isAdmin() || studentCanAccessCourse(courseId) || teacherTeaches(courseId);
@@ -99,7 +99,7 @@ service cloud.firestore {
     }
     function validTeacherEmail() {
       return request.auth.token.email != null && request.resource.data.email == request.auth.token.email
-        && request.resource.data.email.matches('^u[0-9]+@teacher\\.cuet\\.ac\\.bd$');
+        && request.resource.data.email.matches('^[^@ ]+@cuet\\.ac\\.bd$');
     }
     function validInitialProfile() {
       return request.resource.data.keys().hasAll(['name', 'email', 'role', 'department', 'darkMode', 'active', 'emailVerified', 'updatedAt'])

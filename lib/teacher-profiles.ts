@@ -29,7 +29,7 @@ export async function ensureTeacherAccount() {
   const firestore = db
   const user = auth.currentUser
   const email = user.email?.trim().toLowerCase() ?? ''
-  if (!/^u\d+@teacher\.cuet\.ac\.bd$/.test(email)) return
+  if (!/^[^@\s]+@cuet\.ac\.bd$/.test(email)) return
   await runTransaction(firestore, async transaction => {
     const userRef = doc(firestore, 'users', user.uid)
     if ((await transaction.get(userRef)).exists()) return

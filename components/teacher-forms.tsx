@@ -68,10 +68,10 @@ export function TeacherFormScreen({ mode }: { mode: FormMode }) {
     try {
       if (mode === 'review') {
         const values = Object.values(aspectRatings)
-        const rating = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
+        const rating = Math.max(1, Math.min(5, Math.round(values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 5)))
         await services.addProfessorReview({ professorId: teacher.id, text: text.trim(), rating, aspects: aspectRatings, tags: selectedTags, anonymous: visibility === 'anonymous' })
       } else {
-        const questionCategory: QuestionCategory = category
+        const questionCategory: QuestionCategory = category === 'Course Related' ? 'Course Content' : category === 'Academic' || category === 'Advising' ? 'Other' : category
         const attachmentText = attachment ? `\n\nAttachment: ${attachment}` : ''
         await services.addCourseQuestion({ courseId: course!.id, category: questionCategory, text: `${title.trim()}\n\n${text.trim()}${attachmentText}`, anonymous: visibility === 'anonymous' })
       }

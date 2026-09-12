@@ -1,0 +1,2 @@
+import { Text, View } from 'react-native'
+export function CommentSection({ comments }: { comments: { author: string; text: string }[] }) { return <View className="gap-3">{comments.map((comment, index) => <View key={`${comment.author}-${index}`} className="rounded-xl bg-surface p-3 dark:bg-slate-800"><Text className="text-xs font-bold text-ink dark:text-white">{comment.author}</Text><Text className="mt-1 text-sm text-muted">{comment.text}</Text></View>)}</View> }

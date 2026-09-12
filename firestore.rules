@@ -22,7 +22,6 @@ service cloud.firestore {
     // active, so do not make admin access depend on that optional legacy field.
     function isAdmin() {
       return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && userProfile().data.role == 'admin';
     }
     function course(courseId) { return get(/databases/$(database)/documents/courses/$(courseId)); }
@@ -145,8 +144,12 @@ service cloud.firestore {
     }
     function validPublicCourseReview() {
       return request.resource.data.keys().hasAll(['courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt', 'updatedAt'])
         && request.resource.data.courseId is string && validText(request.resource.data.text, 1500)
+        && (!('courseInstanceId' in request.resource.data)
+          || (request.resource.data.courseInstanceId is string
+            && exists(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId))
+            && get(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId)).data.courseId == request.resource.data.courseId))
         && validRatings(request.resource.data.ratings) && request.resource.data.anonymous is bool
         && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
           || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
@@ -164,8 +167,12 @@ service cloud.firestore {
         && validFreshClientTime(request.resource.data.createdAt);
     }
     function validPublicQuestion() {
-      return request.resource.data.keys().hasOnly(['courseId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+      return request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
         && request.resource.data.courseId is string
+        && (!('courseInstanceId' in request.resource.data)
+          || (request.resource.data.courseInstanceId is string
+            && exists(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId))
+            && get(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId)).data.courseId == request.resource.data.courseId))
         && request.resource.data.category in ['Course Content', 'Exam', 'Assignment', 'Project', 'Registration', 'Other']
         && validText(request.resource.data.text, 1500) && request.resource.data.anonymous == true
         && validText(request.resource.data.notificationKey, 128)
@@ -174,6 +181,8 @@ service cloud.firestore {
     function matchingCourseReviewMirror(reviewId) {
       let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/courseReviews/$(reviewId)).data;
       return mirror.id == reviewId && mirror.courseId == request.resource.data.courseId
+        && ((!('courseInstanceId' in request.resource.data) && !('courseInstanceId' in mirror))
+          || mirror.courseInstanceId == request.resource.data.courseInstanceId)
         && mirror.text == request.resource.data.text && mirror.ratings == request.resource.data.ratings
         && mirror.anonymous == request.resource.data.anonymous && mirror.displayName == request.resource.data.displayName
         && mirror.createdAt == request.resource.data.createdAt
@@ -190,6 +199,8 @@ service cloud.firestore {
     function matchingQuestionMirror(questionId) {
       let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/questions/$(questionId)).data;
       return mirror.id == questionId && mirror.courseId == request.resource.data.courseId
+        && ((!('courseInstanceId' in request.resource.data) && !('courseInstanceId' in mirror))
+          || mirror.courseInstanceId == request.resource.data.courseInstanceId)
         && mirror.category == request.resource.data.category && mirror.text == request.resource.data.text
         && mirror.notificationKey == request.resource.data.notificationKey
         && mirror.anonymous == request.resource.data.anonymous && mirror.createdAt == request.resource.data.createdAt;
@@ -198,6 +209,8 @@ service cloud.firestore {
       let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/answers/$(answerId)).data;
       return mirror.id == answerId && mirror.questionId == questionId
         && mirror.courseId == get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId
+        && ((!('courseInstanceId' in request.resource.data) && !('courseInstanceId' in mirror))
+          || mirror.courseInstanceId == request.resource.data.courseInstanceId)
         && mirror.authorRole == request.resource.data.authorRole
         && mirror.createdAt == request.resource.data.createdAt;
     }
@@ -263,7 +276,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if own(userId) || isAdmin();
+      // Keep the owner's profile branch first so isAdmin() does not recurse
+      // through this same rule while reading the current user's role.
+      allow get: if own(userId) || (userId != request.auth.uid && isAdmin());
       allow list: if isAdmin();
       allow create: if own(userId) && validInitialProfile();
       allow update: if pendingProfileVerification(userId)
@@ -276,7 +291,7 @@ service cloud.firestore {
           && request.resource.data.department == resource.data.department
           && validProfileUpdate()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'designation', 'photoUrl', 'bio', 'darkMode', 'updatedAt']))
-        || (isAdmin() && request.auth.uid != userId && resource.data.role == 'student'
+        || (isAdmin() && request.auth.uid != userId && resource.data.role in ['student', 'teacher']
           && request.resource.data.role == resource.data.role && request.resource.data.email == resource.data.email
           && request.resource.data.department == resource.data.department
           && request.resource.data.active == false
@@ -286,7 +301,7 @@ service cloud.firestore {
       match /courseReviews/{reviewId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && isStudent()
-          && request.resource.data.keys().hasOnly(['id', 'courseId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'text', 'ratings', 'anonymous', 'displayName', 'createdAt'])
           && existsAfter(/databases/$(database)/documents/courseReviews/$(reviewId))
           && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.courseId == request.resource.data.courseId
           && getAfter(/databases/$(database)/documents/courseReviews/$(reviewId)).data.text == request.resource.data.text
@@ -328,7 +343,7 @@ service cloud.firestore {
       match /questions/{questionId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && isStudent()
-          && request.resource.data.keys().hasOnly(['id', 'courseId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId == request.resource.data.courseId
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.category == request.resource.data.category
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.text == request.resource.data.text
@@ -342,7 +357,7 @@ service cloud.firestore {
       match /answers/{answerId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && activeUser()
-          && request.resource.data.keys().hasOnly(['id', 'questionId', 'courseId', 'authorRole', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'questionId', 'courseId', 'courseInstanceId', 'authorRole', 'createdAt'])
           && request.resource.data.id == answerId && request.resource.data.questionId is string
           && request.resource.data.courseId is string
           && request.resource.data.authorRole in ['student', 'teacher']
@@ -351,6 +366,19 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId)).data.authorRole == request.resource.data.authorRole
           && getAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId)).data.createdAt == request.resource.data.createdAt
           && get(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)).data.courseId == request.resource.data.courseId;
+        allow update, delete: if false;
+      }
+
+      match /guides/{guideId} {
+        allow read: if own(userId) && activeUser();
+        allow create: if own(userId) && isStudent()
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'createdAt'])
+          && request.resource.data.id == guideId
+          && request.resource.data.courseId is string
+          && validFreshClientTime(request.resource.data.createdAt)
+          && existsAfter(/databases/$(database)/documents/courseGuides/$(guideId))
+          && getAfter(/databases/$(database)/documents/courseGuides/$(guideId)).data.courseId == request.resource.data.courseId
+          && getAfter(/databases/$(database)/documents/courseGuides/$(guideId)).data.createdAt == request.resource.data.createdAt;
         allow update, delete: if false;
       }
 
@@ -393,6 +421,18 @@ service cloud.firestore {
       allow read: if isAdmin() || isStudent() || (isTeacher()
         && (request.auth.uid in resource.data.teacherIds || userProfile().data.get('teacherProfileId', '') in resource.data.teacherIds));
       allow create, update, delete: if isAdmin();
+    }
+
+    match /courseInstances/{instanceId} {
+      allow read: if activeUser();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['courseId', 'batch', 'department', 'level', 'term', 'teacherIds', 'teacherNames', 'legacy', 'createdAt', 'updatedAt'])
+        && request.resource.data.courseId is string
+        && request.resource.data.department is string
+        && request.resource.data.teacherIds is list
+        && request.resource.data.teacherNames is list
+        && request.resource.data.legacy is bool;
+      allow delete: if isAdmin();
     }
 
     match /departments/{departmentId} {
@@ -460,7 +500,7 @@ service cloud.firestore {
       match /answers/{answerId} {
         allow read: if canReadCourseContent(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId);
         allow create: if activeUser()
-          && request.resource.data.keys().hasOnly(['authorRole', 'authorName', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['authorRole', 'authorName', 'text', 'courseInstanceId', 'createdAt'])
           && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt)
           && ((teacherTeaches(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
               && request.resource.data.authorRole == 'teacher' && request.resource.data.authorName == userProfile().data.name)
@@ -517,8 +557,12 @@ service cloud.firestore {
     match /courseGuides/{guideId} {
       allow read: if canReadCourseContent(resource.data.courseId);
       allow create: if isStudent() && studentCanAccessCourse(request.resource.data.courseId)
-        && request.resource.data.keys().hasOnly(['courseId', 'title', 'text', 'resources', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'title', 'text', 'resources', 'createdAt'])
         && validText(request.resource.data.title, 140) && validText(request.resource.data.text, 2000)
+        && (!('courseInstanceId' in request.resource.data)
+          || (request.resource.data.courseInstanceId is string
+            && exists(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId))
+            && get(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId)).data.courseId == request.resource.data.courseId))
         && validOptionalText(request.resource.data.resources, 1000) && validFreshClientTime(request.resource.data.createdAt);
       allow update, delete: if isAdmin();
     }
@@ -526,15 +570,21 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow read: if isAdmin();
       allow create: if activeUser() && !isAdmin()
-        && request.resource.data.keys().hasOnly(['contentType', 'contentId', 'questionId', 'reportedBy', 'reason', 'status', 'createdAt'])
-        && request.resource.data.contentType in ['courseReview', 'professorReview', 'courseQuestion', 'answer']
+        && request.resource.data.keys().hasOnly(['contentType', 'contentId', 'courseInstanceId', 'questionId', 'reportedBy', 'reporterId', 'reporterRole', 'reportedUserId', 'category', 'reason', 'description', 'status', 'createdAt'])
+        && request.resource.data.contentType in ['courseReview', 'professorReview', 'courseQuestion', 'answer', 'courseGuide', 'comment']
         && request.resource.data.contentId is string && request.resource.data.reportedBy == request.auth.uid
+        && (!('courseInstanceId' in request.resource.data) || request.resource.data.courseInstanceId is string)
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reporterRole in ['student', 'teacher']
+        && request.resource.data.reportedUserId is string
         && ((request.resource.data.contentType == 'answer' && validText(request.resource.data.questionId, 128))
           || (request.resource.data.contentType != 'answer' && !('questionId' in request.resource.data)))
-        && request.resource.data.reason in ['Offensive language', 'Personal attack', 'Fake information', 'Spam', 'Other']
+        && request.resource.data.category in ['Spam', 'Harassment', 'Inappropriate content', 'False information', 'Offensive language', 'Other']
+        && request.resource.data.reason == request.resource.data.category
+        && validOptionalText(request.resource.data.description, 500)
         && request.resource.data.status == 'pending' && validFreshClientTime(request.resource.data.createdAt);
-      allow update: if isAdmin() && request.resource.data.status in ['pending', 'kept', 'hidden', 'removed', 'warned']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']);
+      allow update: if isAdmin() && request.resource.data.status in ['pending', 'reviewed', 'resolved']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'action', 'resolvedAt']);
       allow delete: if false;
     }
 
@@ -555,6 +605,21 @@ service cloud.firestore {
     match /moderationHistory/{historyId} {
       allow read, create: if isAdmin();
       allow update, delete: if false;
+    }
+
+    match /userNotifications/{notificationId} {
+      allow read: if activeUser() && resource.data.recipientId == request.auth.uid;
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['recipientId', 'reportId', 'title', 'body', 'read', 'createdAt'])
+        && request.resource.data.recipientId is string
+        && validText(request.resource.data.title, 140)
+        && validText(request.resource.data.body, 500)
+        && request.resource.data.read == false
+        && validFreshClientTime(request.resource.data.createdAt);
+      allow update: if activeUser() && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if false;
     }
 
     match /appeals/{appealId} {

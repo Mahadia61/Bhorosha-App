@@ -1,0 +1,7 @@
+export { useCourses } from './hooks/useCourses'
+export { courseService } from './services/courseService'
+export { teachesCourse } from './services/courseService'
+export { CourseDetails } from './components/CourseDetails'
+export { CourseFilter } from './components/CourseFilter'
+export { CourseCard } from './components/CourseCard'
+export type { Course, CourseInstance, CourseStatus, CourseType } from './types'

@@ -1,2 +1,2 @@
-import Home from '../(tabs)/home'
-export default Home
+import TeacherDashboard from '../(teacher)/teacher-dashboard'
+export default TeacherDashboard

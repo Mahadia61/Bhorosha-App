@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
-import { Card, Empty, Screen } from '@/components/ui'
-import { services } from '@/lib/services'
+import { Card, Empty, PageHeader, Screen, SegmentedTabs } from '@/components/ui/ui'
+import { courseService } from '@/features/courses'
+import { notificationService } from '@/features/notifications'
+import { reviewService } from '@/features/reviews'
+import { userService } from '@/features/users'
 import { useApp } from '@/providers/AppProvider'
-import type { ActivityItem, AppNotification, Course, Professor, ProfessorReview, Review } from '@/lib/types'
+import type { ActivityItem, AppNotification, Course, Professor, ProfessorReview, Review } from '@/types'
 
 type ActivityTab = 'all' | 'reviews' | 'questions' | 'replies'
 type ListItem = { id: string; kind: 'courseReview' | 'professorReview' | 'question' | 'answer'; title: string; related: string; date: number; targetId: string; courseId?: string; professorId?: string; questionId?: string; anonymous?: boolean; preview?: string; status?: string }
@@ -15,7 +18,7 @@ const tabs: { key: ActivityTab; label: string }[] = [
 ]
 
 export default function Activity() {
-  const { profile, isDark } = useApp()
+  const { profile } = useApp()
   const [tab, setTab] = useState<ActivityTab>('all')
   const [items, setItems] = useState<ActivityItem[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
@@ -31,7 +34,7 @@ export default function Activity() {
     setRefreshing(true); setError('')
     try {
       const [activity, nextNotifications, nextCourses, nextTeachers, nextReviews, nextTeacherReviews] = await Promise.all([
-        services.myActivity(profile.id), services.questionNotifications(profile.id), services.courses(), services.professors(), services.myReviews(profile.id), services.myProfessorReviews(profile.id),
+        userService.myActivity(profile.id), notificationService.questionNotifications(profile.id), courseService.courses(), userService.professors(), reviewService.myReviews(profile.id), reviewService.myProfessorReviews(profile.id),
       ])
       setItems(activity); setNotifications(nextNotifications); setCourses(nextCourses); setTeachers(nextTeachers); setReviews(nextReviews); setTeacherReviews(nextTeacherReviews)
     } catch (reason) {
@@ -66,9 +69,9 @@ export default function Activity() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
       contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 30 }}
       ListHeaderComponent={<>
-        <View className="flex-row items-start justify-between"><View><Text className="text-[27px] font-extrabold tracking-tight text-[#10182F] dark:text-white">Activity</Text><Text className="mt-1 text-xs text-[#64718B] dark:text-slate-400">Track your interactions</Text></View><View className="flex-row items-center gap-3"><Pressable onPress={() => router.push('/student-notifications' as never)}><Feather name="bell" size={20} color={isDark ? '#E2E8F0' : '#172038'} /></Pressable><Pressable onPress={() => router.push('/(tabs)/profile' as never)} className="h-9 w-9 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="text-xs font-bold text-brand">{profile?.name.trim().charAt(0).toUpperCase() || 'S'}</Text></Pressable></View></View>
-        <View className="mt-5 flex-row gap-2">{tabs.map(item => <Pressable key={item.key} onPress={() => setTab(item.key)} className={`rounded-lg px-3 py-2 ${tab === item.key ? 'bg-brand' : 'bg-white dark:bg-slate-900'}`}><Text className={`text-[10px] font-semibold ${tab === item.key ? 'text-white' : 'text-muted'}`}>{item.label}</Text></Pressable>)}</View>
-        <Text className="mb-1 mt-6 text-sm font-extrabold text-[#172038] dark:text-white">{tab === 'all' ? 'Recent Activity' : tab === 'reviews' ? 'My Reviews' : tab === 'questions' ? 'My Questions' : 'Replies to You'}</Text>
+        <PageHeader title="Activity" subtitle="Track your interactions" />
+        <View className="mt-5"><SegmentedTabs items={tabs} value={tab} onChange={setTab} /></View>
+        <Text className="mb-1 mt-6 text-base font-extrabold text-ink dark:text-white">{tab === 'all' ? 'Recent Activity' : tab === 'reviews' ? 'My Reviews' : tab === 'questions' ? 'My Questions' : 'Replies to You'}</Text>
         {error ? <Text className="mb-2 text-xs text-rose-600">{error}</Text> : null}
       </>}
       ListEmptyComponent={<Empty title="No activity yet" body="Your reviews, questions, and replies will appear here." />}
@@ -81,5 +84,5 @@ function ActivityRow({ item, course, review, teacherReview, onPress }: { item: L
   const icon = item.kind === 'courseReview' ? 'message-square' : item.kind === 'professorReview' ? 'star' : item.kind === 'question' ? 'help-circle' : 'corner-up-left'
   const color = item.kind === 'courseReview' ? '#16A34A' : item.kind === 'professorReview' ? '#E11D48' : item.kind === 'question' ? '#7C3AED' : '#1670F8'
   const preview = review?.text ?? teacherReview?.text ?? item.preview ?? ''
-  return <Pressable onPress={onPress} className="flex-row items-center border-b border-slate-100 py-4 dark:border-slate-800"><View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: `${color}18` }}><Feather name={icon} size={18} color={color} /></View><View className="ml-3 flex-1"><Text className="text-xs font-bold text-[#172038] dark:text-white">{item.title}</Text><Text numberOfLines={1} className="mt-1 text-[10px] text-muted">{item.related}{course ? ` — ${course.title}` : ''}</Text>{preview ? <Text numberOfLines={1} className="mt-1 text-[10px] text-muted">{preview}</Text> : null}<Text className="mt-1 text-[10px] text-muted">{new Date(item.date).toLocaleDateString()}</Text></View><Feather name="chevron-right" size={16} color="#64718B" /></Pressable>
+  return <Pressable onPress={onPress} className="flex-row items-center border-b border-slate-100 py-4 dark:border-slate-800"><View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: `${color}18` }}><Feather name={icon} size={18} color={color} /></View><View className="ml-3 flex-1"><Text className="text-sm font-bold text-[#172038] dark:text-white">{item.title}</Text><Text numberOfLines={1} className="mt-1 text-xs text-muted">{item.related}{course ? ` — ${course.title}` : ''}</Text>{preview ? <Text numberOfLines={1} className="mt-1 text-sm leading-5 text-muted">{preview}</Text> : null}<Text className="mt-1 text-xs text-muted">{new Date(item.date).toLocaleDateString()}</Text></View><Feather name="chevron-right" size={16} color="#64718B" /></Pressable>
 }

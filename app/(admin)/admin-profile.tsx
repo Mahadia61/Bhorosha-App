@@ -1,0 +1,234 @@
+import { useState } from "react";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useApp } from "@/providers/AppProvider";
+
+export default function AdminProfile() {
+  const { profile, updateProfile, signOut } = useApp();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(profile?.name ?? "");
+  const [saving, setSaving] = useState(false);
+  if (!profile || profile.role !== "admin") return null;
+  const save = async () => {
+    if (!name.trim())
+      return Alert.alert(
+        "Enter your name",
+        "Your profile name cannot be empty.",
+      );
+    setSaving(true);
+    try {
+      await updateProfile({ ...profile, name: name.trim() });
+      setEditing(false);
+    } catch (reason) {
+      Alert.alert(
+        "Could not save profile",
+        reason instanceof Error ? reason.message : "Please try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 112 }}>
+        <ProfileHeader
+          title={editing ? "Edit Profile" : "Profile"}
+          subtitle={
+            editing
+              ? "Update your personal information."
+              : "Your account information."
+          }
+          back={editing ? () => setEditing(false) : undefined}
+        />
+        {editing ? (
+          <>
+            <Text className="mt-8 text-sm font-semibold text-slate-950 dark:text-white">
+              Full name <Text className="text-rose-500">*</Text>
+            </Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Enter your full name"
+              placeholderTextColor="#9CA3AF"
+              className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-4 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            />
+            <Text className="mt-6 text-sm font-semibold text-slate-950 dark:text-white">
+              Email
+            </Text>
+            <View className="mt-3 rounded-xl bg-slate-100 px-4 py-4 dark:bg-slate-800">
+              <Text className="text-base text-slate-400">{profile.email}</Text>
+            </View>
+            <Text className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Email cannot be changed.
+            </Text>
+            <Pressable
+              disabled={saving}
+              onPress={() => {
+                void save();
+              }}
+              className={`mt-10 rounded-xl bg-[#1670F8] py-4 ${saving ? "opacity-60" : ""}`}
+            >
+              <Text className="text-center text-base font-bold text-white">
+                {saving ? "Saving…" : "Save Changes"}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <View className="mt-8 flex-row items-center rounded-3xl bg-white p-5 shadow-sm dark:bg-slate-900">
+              <View className="h-20 w-20 items-center justify-center rounded-full bg-[#1670F8]">
+                <Text className="text-3xl font-bold text-white">
+                  {profile.name.trim().charAt(0).toUpperCase() || "A"}
+                </Text>
+              </View>
+              <View className="ml-4 flex-1">
+                <Text className="text-lg font-bold text-slate-950 dark:text-white">
+                  {profile.name}
+                </Text>
+                <Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  {profile.email}
+                </Text>
+                <View className="mt-3 self-start rounded-lg bg-blue-100 px-3 py-1">
+                  <Text className="text-xs font-bold text-blue-700">
+                    Administrator
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View className="mt-6 overflow-hidden rounded-3xl bg-white shadow-sm dark:bg-slate-900">
+              <ProfileRow
+                icon="user"
+                title="Edit Profile"
+                onPress={() => setEditing(true)}
+              />
+              <ProfileRow
+                icon="clock"
+                title="Activity Log"
+                onPress={() => router.push("/admin-activity")}
+              />
+              <ProfileRow
+                icon="settings"
+                title="Settings"
+                onPress={() => router.push("/admin-settings")}
+              />
+            </View>
+            <View className="mt-6 overflow-hidden rounded-3xl bg-rose-50 shadow-sm">
+              <ProfileRow
+                icon="log-out"
+                title="Logout"
+                danger
+                onPress={() => {
+                  void signOut().then(() => router.replace("/welcome"));
+                }}
+              />
+            </View>
+          </>
+        )}
+      </ScrollView>
+      <AdminBottomNav />
+    </SafeAreaView>
+  );
+}
+
+function ProfileHeader({
+  title,
+  subtitle,
+  back,
+}: {
+  title: string;
+  subtitle: string;
+  back?: () => void;
+}) {
+  return (
+    <View className="flex-row items-start">
+      {back ? (
+        <Pressable
+          onPress={back}
+          className="mr-3 h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-slate-900"
+        >
+          <Feather name="arrow-left" size={22} color="#14151A" />
+        </Pressable>
+      ) : null}
+      <View className="flex-1">
+        <Text className="text-2xl font-bold text-slate-950 dark:text-white">
+          {title}
+        </Text>
+        <Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          {subtitle}
+        </Text>
+      </View>
+    </View>
+  );
+}
+function ProfileRow({
+  icon,
+  title,
+  danger = false,
+  onPress,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center border-b border-slate-100 px-5 py-5 last:border-b-0 dark:border-slate-800"
+    >
+      <View
+        className={`h-10 w-10 items-center justify-center rounded-xl ${danger ? "bg-rose-100" : "bg-blue-100"}`}
+      >
+        <Feather name={icon} size={19} color={danger ? "#EF4444" : "#1670F8"} />
+      </View>
+      <Text
+        className={`ml-4 flex-1 text-base font-semibold ${danger ? "text-rose-500" : "text-slate-950 dark:text-white"}`}
+      >
+        {title}
+      </Text>
+      <Feather name="chevron-right" size={20} color="#64748B" />
+    </Pressable>
+  );
+}
+function AdminBottomNav() {
+  const tabs = [
+    { label: "Overview", icon: "grid", href: "/(admin-tabs)/overview" },
+    { label: "Courses", icon: "book-open", href: "/(admin-tabs)/courses" },
+    { label: "Members", icon: "users", href: "/(admin-tabs)/members" },
+    { label: "Moderation", icon: "shield", href: "/(admin-tabs)/moderation" },
+    {
+      label: "Analytics",
+      icon: "bar-chart-2",
+      href: "/(admin-tabs)/analytics",
+    },
+  ];
+  return (
+    <View className="h-[76px] flex-row items-start border-t border-slate-200 bg-white px-1 pb-4 pt-3 dark:border-slate-800 dark:bg-slate-900">
+      {tabs.map((tab) => (
+        <Pressable
+          key={tab.label}
+          onPress={() => router.replace(tab.href as never)}
+          className="flex-1 items-center"
+        >
+          <Feather
+            name={tab.icon as keyof typeof Feather.glyphMap}
+            size={22}
+            color="#6C7890"
+          />
+          <Text className="mt-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+            {tab.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}

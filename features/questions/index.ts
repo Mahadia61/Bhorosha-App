@@ -1,0 +1,6 @@
+export { useQuestions } from './hooks/useQuestions'
+export { questionService } from './services/questionService'
+export { ReplySection } from './components/ReplySection'
+export { QuestionCard } from './components/QuestionCard'
+export { QuestionForm } from './components/QuestionForm'
+export type { CourseQuestion, QuestionAnswer, QuestionCategory } from './types'

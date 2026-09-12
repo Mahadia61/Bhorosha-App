@@ -3,10 +3,10 @@ import { Alert, Image, Pressable, ScrollView, Switch, Text, View } from 'react-n
 import * as ImagePicker from 'expo-image-picker'
 import { router } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
-import { Button, Card, Field, Screen } from '@/components/ui'
-import { services } from '@/lib/services'
+import { Button, Card, Field, PageHeader, Screen } from '@/components/ui/ui'
+import { userService } from '@/features/users'
 import { useApp } from '@/providers/AppProvider'
-import { academicLabel } from '@/lib/academic'
+import { academicLabel } from '@/lib/utils/academic'
 
 export default function ProfileScreen() {
   const { profile, isDark, updateProfile, changePassword, signOut } = useApp()
@@ -50,7 +50,7 @@ export default function ProfileScreen() {
     if (result.canceled || !result.assets[0]) return
     setUploading(true)
     try {
-      const photoUrl = await services.uploadProfilePhoto(profile.id, result.assets[0].uri)
+      const photoUrl = await userService.uploadProfilePhoto(profile.id, result.assets[0].uri)
       await updateProfile({ ...profile, photoUrl })
       Alert.alert('Profile photo updated', 'Your new profile picture is ready.')
     } catch (reason) {
@@ -98,8 +98,8 @@ export default function ProfileScreen() {
     }
   }
 
-  return <Screen><View className="flex-1"><ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 110 }}>
-    <View className="mt-4 flex-row items-start justify-between"><View><Text className="text-[27px] font-extrabold tracking-tight text-[#10182F] dark:text-white">Profile</Text><Text className="mt-1 text-sm text-[#64718B] dark:text-slate-400">Manage your account and preferences.</Text></View><View className="h-11 w-11 items-center justify-center rounded-full bg-[#DCEBFF]"><Text className="text-lg font-bold text-[#0B6BFF]">{profile.name.trim().charAt(0).toUpperCase() || 'S'}</Text></View></View>
+  return <Screen><ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 32 }}>
+    <View className="mt-4"><PageHeader title="Profile" subtitle="Manage your account and preferences." /></View>
     <Card className="mt-5"><View className="flex-row items-center gap-4">{profile.photoUrl ? <Image source={{ uri: profile.photoUrl }} className="h-16 w-16 rounded-full bg-slate-200" /> : <View className="h-16 w-16 items-center justify-center rounded-full bg-brand"><Text className="text-2xl font-bold text-white">{profile.name[0]}</Text></View>}<View className="flex-1"><Text className="text-lg font-semibold text-ink dark:text-white">{profile.name}</Text><Text className="mt-0.5 text-sm text-muted">{profile.email}</Text><Text className="mt-1 text-xs font-semibold uppercase text-brand">{profile.role}{profile.designation ? ` · ${profile.designation}` : ''}</Text></View></View>{isTeacher ? <Pressable accessibilityRole="button" onPress={() => { void choosePhoto() }} className={`mt-4 flex-row items-center justify-center gap-2 rounded-xl border border-slate-300 py-2.5 dark:border-slate-700 ${uploading ? 'opacity-50' : ''}`}><Feather name="camera" size={17} color="#4F7EF7" /><Text className="text-sm font-semibold text-brand">{uploading ? 'Uploading photo…' : 'Upload profile photo'}</Text></Pressable> : null}</Card>
     {profile.warningCount ? <Card className="mt-3 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950"><View className="flex-row gap-3"><Feather name="alert-triangle" size={19} color="#D97706" /><View className="flex-1"><Text className="font-medium text-amber-900 dark:text-amber-100">Community account notice</Text><Text className="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-200">You have {profile.warningCount} moderation warning{profile.warningCount === 1 ? '' : 's'}. Please keep feedback and answers respectful and constructive.</Text></View></View></Card> : null}
 
@@ -114,12 +114,7 @@ export default function ProfileScreen() {
     <Text className="mt-7 text-sm font-bold uppercase tracking-wider text-muted">Security</Text>
     <Card className="mt-3"><Text className="font-medium text-ink dark:text-white">Change password</Text><Text className="mt-1 text-xs leading-5 text-muted">Confirm your current password before choosing a new one.</Text><View className="mt-4"><Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry placeholder="Your current password" /><Field label="New password" value={newPassword} onChangeText={setNewPassword} secureTextEntry placeholder="At least 8 characters" /><Field label="Confirm new password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry placeholder="Enter the new password again" /><Button loading={changingPassword} variant="outline" onPress={savePassword}>Update password</Button></View></Card>
 
-    {profile.role === 'admin' ? <Card className="mt-3"><Text onPress={() => router.push('/(admin-tabs)/overview')} className="font-medium text-ink dark:text-white">Open admin workspace</Text><Text className="mt-1 text-xs text-muted">Manage members, tagged courses, assignments, moderation, and analytics.</Text></Card> : profile.role === 'student' ? <Card className="mt-3"><Text onPress={() => router.push('/my-reviews')} className="font-medium text-ink dark:text-white">My reviews</Text><Text className="mt-1 text-xs text-muted">View feedback you have shared.</Text></Card> : <Card className="mt-3"><Text onPress={() => router.push('/(teacher-tabs)/feedback')} className="font-medium text-ink dark:text-white">Teaching feedback</Text><Text className="mt-1 text-xs text-muted">Review feedback for your assigned courses and profile.</Text></Card>}
+    {profile.role === 'admin' ? <Card className="mt-3"><Text onPress={() => router.push('/(admin-tabs)/overview')} className="font-medium text-ink dark:text-white">Open admin workspace</Text><Text className="mt-1 text-xs text-muted">Manage members, tagged courses, assignments, moderation, and analytics.</Text></Card> : profile.role === 'student' ? <Card className="mt-3"><Text onPress={() => router.push('/my-reviews')} className="font-medium text-ink dark:text-white">My reviews</Text><Text className="mt-1 text-xs text-muted">View feedback you have shared.</Text></Card> : <Card className="mt-3"><Text onPress={() => router.push('/(teacher-tabs)/courses')} className="font-medium text-ink dark:text-white">My assigned courses</Text><Text className="mt-1 text-xs text-muted">Open reviews, Q&A, and advice for the courses assigned to you.</Text></Card>}
     <Button className="mt-7" variant="danger" loading={signingOut} onPress={() => { void logout() }}>Sign out</Button>
-  </ScrollView><StudentBottomNav /></View></Screen>
-}
-
-function StudentBottomNav() {
-  const tabs = [{ label: 'Home', icon: 'home', href: '/(student-tabs)/home' }, { label: 'Courses', icon: 'book-open', href: '/(student-tabs)/courses' }, { label: 'Teachers', icon: 'users', href: '/(student-tabs)/professors' }, { label: 'Activity', icon: 'clock', href: '/(student-tabs)/activity' }] as const
-  return <View className="absolute bottom-0 left-0 right-0 flex-row border-t border-slate-200 bg-white px-1 pb-4 pt-3 dark:border-slate-800 dark:bg-slate-900">{tabs.map(tab => <Pressable key={tab.label} onPress={() => router.replace(tab.href as never)} className="flex-1 items-center"><Feather name={tab.icon} size={22} color="#7A879A" /><Text className="mt-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">{tab.label}</Text></Pressable>)}</View>
+  </ScrollView></Screen>
 }

@@ -9,14 +9,14 @@ const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, write
 
 let env
 const root = path.resolve(__dirname, '..')
-const account = (id, role = 'teacher', email = 'u1@teacher.cuet.ac.bd') => ({ id, name: id, email, role, department: 'CSE', designation: 'Lecturer', darkMode: false, active: true, emailVerified: true })
-const teacherInput = (email = 'u1@teacher.cuet.ac.bd') => ({ name: 'Admin Teacher Name', department: 'CSE', designation: 'Professor', email })
+const account = (id, role = 'teacher', email = 'teacher1@cuet.ac.bd') => ({ id, name: id, email, role, department: 'CSE', designation: 'Lecturer', darkMode: false, active: true, emailVerified: true })
+const teacherInput = (email = 'teacher1@cuet.ac.bd') => ({ name: 'Admin Teacher Name', department: 'CSE', designation: 'Professor', email })
 const courseInput = teacher => ({ code: 'CSE 101', title: 'Course', credits: 3, department: 'CSE', level: '1', term: '1', courseType: 'Theory', teacherIds: [teacher.id], teacherNames: [teacher.name], tags: [], status: 'active' })
 const ratings = { teachingQuality: 5, workload: 3, gradingFairness: 4, courseStructure: 5, availability: 4, difficulty: 3, learningValue: 5 }
 
 // Load the production TypeScript services with only their Firebase connection
 // replaced. All reads, transactions and writes still run against real rules.
-function client(id, email = 'u1@teacher.cuet.ac.bd', verified = true) {
+function client(id, email = 'teacher1@cuet.ac.bd', verified = true) {
   const db = env.authenticatedContext(id, { email, email_verified: verified }).firestore()
   const firebase = { db, firebaseEnabled: true, auth: { currentUser: { uid: id, email, emailVerified: verified } } }
   const cache = new Map()
@@ -28,14 +28,15 @@ function client(id, email = 'u1@teacher.cuet.ac.bd', verified = true) {
     instance.filename = file
     instance.paths = module.paths
     instance.require = specifier => {
-      if (specifier === './firebase') return firebase
+      const normalized = specifier.replace(/\\/g, '/')
+      if (normalized === './firebase' || normalized.endsWith('/firebase/firebase')) return firebase
       if (specifier.startsWith('.') && !specifier.endsWith('.json')) return load(path.resolve(path.dirname(file), specifier + '.ts'))
       return Module.createRequire(file)(specifier)
     }
     instance._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file)
     return instance.exports
   }
-  return { db, ...load('lib/teacher-profiles.ts'), services: load('lib/services.ts').services }
+  return { db, ...load('lib/services/teacher-profiles.ts'), services: load('lib/services/services.ts').services }
 }
 async function seed(records) {
   await env.withSecurityRulesDisabled(async context => {
@@ -69,10 +70,10 @@ test('admin creates and assigns a profile before login; verified login reveals a
 test('unverified, wrong-email and student accounts cannot claim profiles or forge links', async () => {
   const admin = client('admin', 'admin@example.com')
   const teacher = await admin.saveTeacherProfile(teacherInput())
-  await seed({ 'users/pending': account('pending'), 'users/stranger': account('stranger', 'teacher', 'u2@teacher.cuet.ac.bd'), 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd') })
-  const pending = client('pending', 'u1@teacher.cuet.ac.bd', false)
+  await seed({ 'users/pending': account('pending'), 'users/stranger': account('stranger', 'teacher', 'teacher2@cuet.ac.bd'), 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd') })
+  const pending = client('pending', 'teacher1@cuet.ac.bd', false)
   assert.equal((await pending.linkTeacherAccount(account('pending'))).teacherLinkPending, true)
-  for (const [id, email, verified] of [['pending', 'u1@teacher.cuet.ac.bd', false], ['stranger', 'u2@teacher.cuet.ac.bd', true], ['student', 'u1@student.cuet.ac.bd', true]]) {
+  for (const [id, email, verified] of [['pending', 'teacher1@cuet.ac.bd', false], ['stranger', 'teacher2@cuet.ac.bd', true], ['student', 'u1@student.cuet.ac.bd', true]]) {
     const user = client(id, email, verified)
     const batch = writeBatch(user.db)
     batch.update(doc(user.db, 'users', id), { teacherProfileId: teacher.id, updatedAt: Date.now() })
@@ -103,10 +104,10 @@ test('provisioned login credentials get an app account from the admin profile wi
 test('many-to-many assignments, course feedback, Q&A and pre-login notifications survive linking and removal', async () => {
   const admin = client('admin', 'admin@example.com')
   const first = await admin.saveTeacherProfile(teacherInput())
-  const second = await admin.saveTeacherProfile({ ...teacherInput('u2@teacher.cuet.ac.bd'), name: 'Second Teacher' })
+  const second = await admin.saveTeacherProfile({ ...teacherInput('teacher2@cuet.ac.bd'), name: 'Second Teacher' })
   const course = await admin.services.createCourse({ ...courseInput(first), teacherIds: [first.id, second.id], teacherNames: [first.name, second.name] })
   const unrelated = await admin.services.createCourse(courseInput(second))
-  await seed({ 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd'), 'users/teacher': account('teacher'), 'users/second': account('second', 'teacher', 'u2@teacher.cuet.ac.bd') })
+  await seed({ 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd'), 'users/teacher': account('teacher'), 'users/second': account('second', 'teacher', 'teacher2@cuet.ac.bd') })
   const student = client('student', 'u1@student.cuet.ac.bd')
   await student.services.addReview({ courseId: course.id, text: 'Useful explanations.', ratings, anonymous: true })
   await student.services.addCourseQuestion({ courseId: course.id, category: 'Exam', text: 'Which chapters are included?', anonymous: true })
@@ -125,8 +126,8 @@ test('many-to-many assignments, course feedback, Q&A and pre-login notifications
   assert.equal((await teacherClient.services.courses()).length, 0)
   await assertFails(teacherClient.services.reviews(course.id))
   await assertFails(teacherClient.services.addTeacherResponse(review.id, 'No longer assigned'))
-  const secondClient = client('second', 'u2@teacher.cuet.ac.bd')
-  await secondClient.linkTeacherAccount(account('second', 'teacher', 'u2@teacher.cuet.ac.bd'))
+  const secondClient = client('second', 'teacher2@cuet.ac.bd')
+  await secondClient.linkTeacherAccount(account('second', 'teacher', 'teacher2@cuet.ac.bd'))
   assert.equal((await secondClient.services.courses()).length, 2)
   await admin.services.updateCourse(course.id, { ...courseInput(second), teacherIds: [], teacherNames: [] })
   assert.equal((await student.services.reviews(course.id))[0].id, review.id)
@@ -142,10 +143,10 @@ test('email is optional, normalized, unique and can be added before a later logi
   assert.equal((await teacherClient.linkTeacherAccount(account('teacher'))).teacherProfileId, undefined)
   // Reopening Members after signup must not import a duplicate email profile.
   assert.equal((await admin.adminTeacherProfiles()).length, 1)
-  await admin.saveTeacherProfile(teacherInput(' U1@TEACHER.CUET.AC.BD '), teacher.id)
+  await admin.saveTeacherProfile(teacherInput(' Teacher1@CUET.AC.BD '), teacher.id)
   await assert.rejects(admin.saveTeacherProfile(teacherInput()), /already uses this email/)
   assert.equal((await teacherClient.linkTeacherAccount(account('teacher'))).teacherProfileId, teacher.id)
-  await assert.rejects(admin.saveTeacherProfile(teacherInput('u2@teacher.cuet.ac.bd'), teacher.id), /linked teacher/)
+  await assert.rejects(admin.saveTeacherProfile(teacherInput('teacher2@cuet.ac.bd'), teacher.id), /linked teacher/)
   await assertFails(getDocs(collection(teacherClient.db, 'teacherProfileEmails')))
 })
 

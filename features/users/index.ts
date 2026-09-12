@@ -1,0 +1,5 @@
+export { useUser } from './hooks/useUser'
+export { userService } from './services/userService'
+export { teachesCourse } from './services/userService'
+export { TeacherProfile } from './components/TeacherProfile'
+export type { Profile, Professor, TeacherProfile as TeacherProfileData } from './types'

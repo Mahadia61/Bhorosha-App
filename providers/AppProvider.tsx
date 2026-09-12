@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import { useColorScheme } from 'react-native'
 import { colorScheme } from 'nativewind'
-import type { AcademicLevel, AcademicTerm, Profile, Role } from '@/lib/types'
-import { services } from '@/lib/services'
+import type { AcademicLevel, AcademicTerm, Profile, Role } from '@/lib/types/types'
+import { services } from '@/lib/services/services'
+import { authStateWithProfile, initialAuthState } from '@/store/authStore'
+import { initialThemeState, setThemeOverride } from '@/store/themeStore'
 
-type StudentDetails = { batch: string; studentId: string; currentLevel: AcademicLevel; currentTerm: AcademicTerm }
+type StudentDetails = { currentLevel: AcademicLevel; currentTerm: AcademicTerm }
 type AppContextValue = { profile: Profile | null; ready: boolean; isDark: boolean; signIn: (email: string, password: string) => Promise<Profile>; signUp: (name: string, email: string, password: string, role: Role, department: string, designation?: string, studentDetails?: StudentDetails) => Promise<Profile>; resendEmailVerification: () => Promise<void>; confirmEmailVerification: () => Promise<Profile>; requestPasswordReset: (email: string) => Promise<void>; changePassword: (currentPassword: string, nextPassword: string) => Promise<void>; signOut: () => Promise<void>; updateProfile: (next: Profile) => Promise<void>; setThemePreference: (darkMode: boolean) => Promise<void> }
 const AppContext = createContext<AppContextValue | null>(null)
 const themeKey = (userId: string) => `bhorosha-theme-${userId}`
@@ -18,33 +20,35 @@ const saveStoredTheme = (userId: string, darkMode: boolean) => {
   try { globalThis.localStorage?.setItem(themeKey(userId), darkMode ? 'dark' : 'light') } catch { /* Firestore remains the native persistence path. */ }
 }
 export function AppProvider({ children }: PropsWithChildren) {
-  const systemTheme = useColorScheme(); const [profile, setProfile] = useState<Profile | null>(null); const [ready, setReady] = useState(false); const [themeOverride, setThemeOverride] = useState<boolean | null>(null)
+  const systemTheme = useColorScheme(); const [authState, setAuthState] = useState(initialAuthState); const [themeState, setThemeState] = useState(initialThemeState)
+  const { profile, ready } = authState
+  const themeOverride = themeState.override
   useEffect(() => {
-    const unsubscribe = services.subscribeToSession(nextProfile => { setProfile(nextProfile); setReady(true) })
+    const unsubscribe = services.subscribeToSession(nextProfile => { setAuthState(current => authStateWithProfile(current, nextProfile)) })
     return unsubscribe
   }, [])
-  useEffect(() => { setThemeOverride(profile ? readStoredTheme(profile.id) : null) }, [profile?.id])
+  useEffect(() => { setThemeState(current => setThemeOverride(current, profile ? readStoredTheme(profile.id) : null)) }, [profile?.id])
   const isDark = themeOverride ?? profile?.darkMode ?? systemTheme === 'dark'
   useEffect(() => {
     colorScheme.set(isDark ? 'dark' : 'light')
   }, [isDark])
   const value = useMemo<AppContextValue>(() => ({
     profile, ready, isDark,
-    signIn: async (email, password) => { const next = await services.signIn(email, password); setProfile(next); return next },
-    signUp: async (name, email, password, role, department, designation, studentDetails) => { const next = await services.signUp(name, email, password, role, department, designation, studentDetails); setProfile(next); return next },
+    signIn: async (email, password) => { const next = await services.signIn(email, password); setAuthState(current => authStateWithProfile(current, next)); return next },
+    signUp: async (name, email, password, role, department, designation, studentDetails) => { const next = await services.signUp(name, email, password, role, department, designation, studentDetails); setAuthState(current => authStateWithProfile(current, next)); return next },
     resendEmailVerification: async () => services.resendEmailVerification(),
-    confirmEmailVerification: async () => { const next = await services.confirmEmailVerification(); setProfile(next); return next },
+    confirmEmailVerification: async () => { const next = await services.confirmEmailVerification(); setAuthState(current => authStateWithProfile(current, next)); return next },
     requestPasswordReset: async email => services.requestPasswordReset(email),
     changePassword: async (currentPassword, nextPassword) => services.changePassword(currentPassword, nextPassword),
-    signOut: async () => { await services.signOut(); setThemeOverride(null); setProfile(null) },
-    updateProfile: async next => setProfile(await services.updateProfile(next)),
+    signOut: async () => { await services.signOut(); setThemeState(current => setThemeOverride(current, null)); setAuthState(current => authStateWithProfile(current, null)) },
+    updateProfile: async next => { const updated = await services.updateProfile(next); setAuthState(current => authStateWithProfile(current, updated)) },
     setThemePreference: async darkMode => {
       if (!profile) return
       // Apply immediately, then keep the choice locally while Firestore syncs.
-      setThemeOverride(darkMode)
-      setProfile(current => current ? { ...current, darkMode } : current)
+      setThemeState(current => setThemeOverride(current, darkMode))
+      setAuthState(current => current.profile ? authStateWithProfile(current, { ...current.profile, darkMode }) : current)
       saveStoredTheme(profile.id, darkMode)
-      try { setProfile(await services.updateProfile({ ...profile, darkMode })) } catch { /* The local choice remains active; a later permitted sync can persist it. */ }
+      try { const updated = await services.updateProfile({ ...profile, darkMode }); setAuthState(current => authStateWithProfile(current, updated)) } catch { /* The local choice remains active; a later permitted sync can persist it. */ }
     },
   }), [profile, ready, isDark])
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

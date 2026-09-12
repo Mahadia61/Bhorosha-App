@@ -1,2 +1,2 @@
-import Profile from '../(tabs)/profile'
-export default Profile
+import TeacherProfile from '../(teacher)/teacher-profile'
+export default TeacherProfile

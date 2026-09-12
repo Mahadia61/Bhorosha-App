@@ -1,3 +1,3 @@
-import TeacherCourses from '../teacher-courses'
+import TeacherCourses from '../(teacher)/teacher-courses'
 
 export default TeacherCourses

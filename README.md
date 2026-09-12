@@ -158,8 +158,21 @@ emulator on first use.
 
 ```text
 app/        Expo Router screens and role-based navigation
-components/ Shared React Native components
-lib/        Firebase integration, services, types, and domain logic
+components/
+  common/   Shared UI primitives and states
+  navigation/ Role-aware navigation chrome
+  cards/    Reusable course, teacher, question, review, and advice cards
+  forms/    Reusable feature forms
+  feedback/ Review, report, reaction, and comment components
+  layout/   Protected role layouts and auth guards
+features/   Domain-owned components, hooks, services, and types
+  auth/ users/ courses/ reviews/ questions/ reports/ notifications/
+services/   Domain service entry points over the Firebase implementation
+hooks/      Reusable auth, user, course, review, question, and notification hooks
+store/      Small pure global-state helpers used by the app provider
+types/      Domain type entry points grouped by feature
+utils/      Validation, formatting, constants, and permission helpers
+lib/        Firebase implementation, legacy service facade, types, and domain logic
 providers/  Application state providers
 backend/    Optional Express service
 tests/      Emulator-backed regression tests
@@ -168,6 +181,37 @@ firestore.rules
 storage.rules
             Explicitly denies Firebase Storage access
 ```
+
+### Refactoring and migration map
+
+The shared architecture is being adopted incrementally to keep existing deep
+links and Firebase behavior stable:
+
+- The three role tab layouts now use `components/navigation/RoleTabsLayout`
+  instead of maintaining three copies of the same tab-bar configuration.
+- Existing primitives in `components/ui/ui.tsx` remain the source of truth;
+  `components/common` provides stable semantic names such as `AppBar`,
+  `ProfileAvatar`, `NotificationIcon`, `EmptyState`, and `FilterDropdown`.
+- `components/cards`, `components/forms`, and `components/feedback` contain
+  configurable feature components. Screens should use these during their next
+  focused migration instead of copying markup.
+- The files in `services/` are domain entry points over the existing
+  `lib/services/services.ts` facade. This preserves collection names and
+  enables future extraction of Firebase implementations one domain at a time.
+- The `features/` tree is the preferred import surface for new feature code.
+  Its service files currently wrap the compatibility facade; this is
+  intentional so Firebase logic can be moved without changing collections or
+  route behavior.
+- `types/` provides domain-level type entry points while the legacy
+  `lib/types/types.ts` remains the single compatibility source until all
+  consumers are migrated.
+- `components/layout/ProtectedRoute` and the role layout exports provide a
+  single auth/role guard for new screens.
+
+During migration, do not delete the legacy `app/` route aliases or the
+`lib/services/services.ts` facade: existing bookmarks and imports depend on
+them. Replace a screen only after its route and targeted type check have been
+verified.
 
 ## Security notes
 

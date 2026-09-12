@@ -1,0 +1,7 @@
+export { useReviews } from './hooks/useReviews'
+export { reviewService } from './services/reviewService'
+export { ReviewSummary } from './components/ReviewSummary'
+export { ReviewCard } from './components/ReviewCard'
+export { ReviewForm } from './components/ReviewForm'
+export { LikeDislikeButton } from './components/LikeDislikeButton'
+export type { ProfessorReview, RatingMap, Review, TeacherResponse } from './types'

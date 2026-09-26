@@ -7,7 +7,7 @@ import type { Role } from '@/lib/types/types'
 
 export function useRoleChrome(role?: Role) {
   const { profile, isDark } = useApp()
-  const resolved = role ?? profile?.role ?? 'student'
+  const resolved: Role = role ?? profile?.role ?? 'student'
   const routes = roleRoutes[resolved]
   const [unread, setUnread] = useState(0)
 

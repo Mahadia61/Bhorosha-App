@@ -7,6 +7,7 @@ import { Button, Card } from '@/components/ui/ui'
 import { services } from '@/lib/services/services'
 import { useApp } from '@/providers/AppProvider'
 import type { Course, Professor, QuestionCategory } from '@/lib/types/types'
+import { moderateContent } from '@/lib/services/ai'
 
 type FormMode = 'review' | 'question'
 type Visibility = 'anonymous' | 'named'
@@ -69,11 +70,22 @@ export function TeacherFormScreen({ mode }: { mode: FormMode }) {
       if (mode === 'review') {
         const values = Object.values(aspectRatings)
         const rating = Math.max(1, Math.min(5, Math.round(values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 5)))
+        const moderation = await moderateContent('review', `teacher-${teacher.id}-${Date.now()}`, text.trim())
+        if (moderation.decision === 'flagged') {
+          Alert.alert('Review sent for moderation', 'This review needs administrator review before it can be published.')
+          return
+        }
         await services.addProfessorReview({ professorId: teacher.id, text: text.trim(), rating, aspects: aspectRatings, tags: selectedTags, anonymous: visibility === 'anonymous' })
       } else {
         const questionCategory: QuestionCategory = category === 'Course Related' ? 'Course Content' : category === 'Academic' || category === 'Advising' ? 'Other' : category
         const attachmentText = attachment ? `\n\nAttachment: ${attachment}` : ''
-        await services.addCourseQuestion({ courseId: course!.id, category: questionCategory, text: `${title.trim()}\n\n${text.trim()}${attachmentText}`, anonymous: visibility === 'anonymous' })
+        const questionText = `${title.trim()}\n\n${text.trim()}${attachmentText}`
+        const moderation = await moderateContent('question', `teacher-question-${course!.id}-${Date.now()}`, questionText)
+        if (moderation.decision === 'flagged') {
+          Alert.alert('Question sent for moderation', 'This question needs administrator review before it can be published.')
+          return
+        }
+        await services.addCourseQuestion({ courseId: course!.id, category: questionCategory, text: questionText, anonymous: visibility === 'anonymous' })
       }
       Alert.alert(mode === 'review' ? 'Review submitted' : 'Question posted', mode === 'review' ? 'Thank you for sharing your feedback.' : 'Your teacher can now respond.', [{ text: 'Done', onPress: () => router.back() }])
     } catch (reason) {

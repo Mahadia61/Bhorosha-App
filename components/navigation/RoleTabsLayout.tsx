@@ -9,7 +9,11 @@ export function RoleTabsLayout({ role, hidden = false }: { role: Role; hidden?: 
   const { profile, ready, isDark } = useApp()
   const insets = useSafeAreaInsets()
   const icons = Object.fromEntries(roleTabs[role].map(tab => [tab.name, tab.icon])) as Record<string, keyof typeof Feather.glyphMap>
-  if (ready && profile?.role !== role) return <Redirect href="/" />
+  const canAccess = profile
+    && profile.role === role
+    && profile.active !== false
+    && (role !== 'student' || profile.emailVerified === true)
+  if (ready && !canAccess) return <Redirect href="/" />
   return <Tabs screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: colors.brand,

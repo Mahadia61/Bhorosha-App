@@ -192,6 +192,14 @@ export default function StudentHome() {
         <View className="mt-3 flex-row flex-wrap justify-between">
           <QuickActionCard
             icon="book-open"
+            iconBg="#EAE0FB"
+            iconColor="#7C3AED"
+            label="Academic Help"
+            detail="Ask about your study plan"
+            onPress={() => router.push("/academic-assistant" as never)}
+          />
+          <QuickActionCard
+            icon="book-open"
             iconBg="#DCEAFE"
             iconColor="#1670F8"
             label="My Courses"

@@ -19,6 +19,7 @@ import { reviewService } from "@/features/reviews";
 import { userService } from "@/features/users";
 import { defaultRatings } from "@/lib/services/services";
 import { summarizeReviews } from "@/lib/utils/ai-summary";
+import { moderateContent, type ReviewSummary } from "@/lib/services/ai";
 import { useApp } from "@/providers/AppProvider";
 import { ReportButton } from "@/components/moderation/ReportButton";
 import { academicLabel, questionCategories } from "@/lib/utils/academic";
@@ -87,7 +88,7 @@ export default function CourseDetail() {
   const [sort, setSort] = useState<"recent" | "highest">("recent");
   const [page, setPage] = useState(1);
   const [sending, setSending] = useState(false);
-  const [summary, setSummary] = useState("");
+  const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -192,6 +193,11 @@ export default function CourseDetail() {
       const taggedText = reviewTags.length
         ? `${reviewText.trim()}\n\nTags: ${reviewTags.join(", ")}`
         : reviewText.trim();
+      const moderation = await moderateContent("review", ownReview?.id ?? `course-${id}-${Date.now()}`, taggedText);
+      if (moderation.decision === "flagged") {
+        Alert.alert("Review sent for moderation", "This review needs administrator review before it can be published.");
+        return;
+      }
       const safeRatings = normalizeRatings(ratings);
       if (ownReview)
         await reviewService.updateReview(ownReview.id, {
@@ -240,6 +246,11 @@ export default function CourseDetail() {
         ? `\n\nAttachment: ${attachment.trim()}`
         : "";
       const questionBody = `${questionTitle.trim() ? `${questionTitle.trim()}\n\n` : ""}${questionText.trim()}${attachmentText}`;
+      const moderation = await moderateContent("question", `course-${id}-${Date.now()}`, questionBody);
+      if (moderation.decision === "flagged") {
+        Alert.alert("Question sent for moderation", "This question needs administrator review before it can be published.");
+        return;
+      }
       await questionService.addCourseQuestion({
         courseId: id,
         category: questionCategory,
@@ -268,6 +279,12 @@ export default function CourseDetail() {
       );
     setSending(true);
     try {
+      const adviceText = `${guideTitle.trim()}\n\n${guideText.trim()}${guideResources.trim() ? `\n\nResources: ${guideResources.trim()}` : ""}`;
+      const moderation = await moderateContent("advice", `course-${id}-${Date.now()}`, adviceText);
+      if (moderation.decision === "flagged") {
+        Alert.alert("Advice sent for moderation", "This advice needs administrator review before it can be published.");
+        return;
+      }
       await courseService.addCourseGuide({
         courseId: id,
         title: guideTitle.trim(),
@@ -294,14 +311,7 @@ export default function CourseDetail() {
   const generateSummary = async () => {
     setSummarizing(true);
     try {
-      setSummary(
-        (
-          await summarizeReviews(
-            { type: "course", id, label: course?.code ?? "this course" },
-            reviews,
-          )
-        ).summary,
-      );
+      setSummary(await summarizeReviews({ type: "course", id, label: course?.code ?? "this course" }, reviews));
     } catch (reason) {
       Alert.alert(
         "Could not generate summary",
@@ -599,7 +609,7 @@ function Overview({
   course: Course;
   average: number;
   reviews: Review[];
-  summary: string;
+  summary: ReviewSummary | null;
   summarizing: boolean;
   onSummary: () => void;
   onReviews: () => void;
@@ -668,8 +678,13 @@ function Overview({
               AI COURSE SUMMARY
             </Text>
             <Text className="mt-1 text-sm leading-5 text-[#52627A] dark:text-slate-300">
-              {summary}
+              {summary.summary}
             </Text>
+            <Text className="mt-2 text-[10px] font-bold uppercase text-[#52627A] dark:text-slate-300">
+              Sentiment: {summary.sentiment}
+            </Text>
+            {summary.positivePoints.length ? <Text className="mt-2 text-xs leading-5 text-[#52627A] dark:text-slate-300">Positive: {summary.positivePoints.join(" • ")}</Text> : null}
+            {summary.negativePoints.length ? <Text className="mt-1 text-xs leading-5 text-[#52627A] dark:text-slate-300">Needs attention: {summary.negativePoints.join(" • ")}</Text> : null}
           </View>
         ) : null}
       </Card>

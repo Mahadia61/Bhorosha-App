@@ -784,16 +784,24 @@ export const services = {
     const title = sanitizeCommunityText(input.title.trim())
     const text = sanitizeCommunityText(input.text.trim())
     if (!title || !text) throw new Error('Add a guide title and useful advice.')
-    const completed = await getDoc(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'completedCourses', input.courseInstanceId ?? input.courseId))
-    if (!completed.exists() || completed.data().completed !== true) throw new Error('You can share advice only for a course you have completed.')
-    const guideRef = doc(collection(firestore, 'courseGuides'))
-    const createdAt = Date.now()
-    const batch = writeBatch(firestore)
     const course = await this.course(input.courseId)
     const instance = course ? await this.legacyCourseInstance(course) : null
     const instanceId = input.courseInstanceId ?? instance?.id
+    const completionIds = input.courseInstanceId
+      ? [input.courseInstanceId]
+      : [input.courseId, ...(instanceId && instanceId !== input.courseId ? [instanceId] : [])]
+    const completed = await Promise.all(completionIds.map(id => getDoc(doc(firestore, 'users', firebaseAuth.currentUser!.uid, 'completedCourses', id))))
+    if (!completed.some(snapshot => snapshot.exists() && snapshot.data().completed === true)) throw new Error('You can share advice only for a course you have completed.')
+    const guideRef = doc(collection(firestore, 'courseGuides'))
+    const createdAt = Date.now()
+    const batch = writeBatch(firestore)
     batch.set(guideRef, { courseId: input.courseId, ...(instanceId ? { courseInstanceId: instanceId } : {}), title, text, resources: input.resources?.trim() || '', createdAt })
-    batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'guides', guideRef.id), { id: guideRef.id, courseId: input.courseId, createdAt })
+    batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'guides', guideRef.id), {
+      id: guideRef.id,
+      courseId: input.courseId,
+      ...(instanceId ? { courseInstanceId: instanceId } : {}),
+      createdAt,
+    })
     await batch.commit()
   },
   async deleteCourseGuide(guideId: string) {

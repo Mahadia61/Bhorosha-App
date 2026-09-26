@@ -12,13 +12,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return result
 }
 
-export type SentimentResult = { sentiment: string; confidence?: number; source: 'ai' | 'local' }
-export type AdminInsights = { insights: string; counts: Record<string, number>; source: 'ai' | 'local' }
-
-export function analyzeReviewSentiment(text: string) {
-  return request<SentimentResult>('/v1/ai/sentiment', { method: 'POST', body: JSON.stringify({ text }) })
+export type ReviewSummary = {
+  id: string
+  summary: string
+  positivePoints: string[]
+  negativePoints: string[]
+  sentiment: 'positive' | 'neutral' | 'negative'
+  fallback: boolean
 }
 
-export function loadAdminAiInsights() {
-  return request<AdminInsights>('/v1/ai/admin-insights')
+export type ModerationResult = { decision: 'safe' | 'flagged'; reason: string; confidence: number; fallback: boolean }
+export type AcademicAssistantResponse = { conversationId: string; answer: string; fallback: boolean }
+
+export function loadReviewSummary(subjectType: 'course' | 'teacher', subjectId: string) {
+  return request<ReviewSummary>('/v1/ai/review-summary', { method: 'POST', body: JSON.stringify({ subjectType, subjectId }) })
+}
+
+export function moderateContent(entityType: 'review' | 'question' | 'advice', entityId: string, content: string) {
+  return request<ModerationResult>('/v1/ai/moderate', { method: 'POST', body: JSON.stringify({ entityType, entityId, content }) })
+}
+
+export function askAcademicAssistant(question: string, conversationId?: string) {
+  return request<AcademicAssistantResponse>('/v1/ai/academic-assistant', { method: 'POST', body: JSON.stringify({ question, ...(conversationId ? { conversationId } : {}) }) })
+}
+
+export function testGeminiConnection() {
+  return request<{ connected: boolean; model: string }>('/v1/ai/health')
 }

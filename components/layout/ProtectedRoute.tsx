@@ -7,6 +7,6 @@ import { LoadingState } from '@/components/ui/ui'
 export function ProtectedRoute({ role, children }: PropsWithChildren<{ role?: Role }>) {
   const { profile, ready } = useApp()
   if (!ready) return <LoadingState label="Checking your account…" />
-  if (!profile || (role && profile.role !== role)) return <Redirect href="/" />
+  if (!profile || profile.active === false || (role && (profile.role !== role || (role === 'student' && profile.emailVerified !== true)))) return <Redirect href="/" />
   return children
 }

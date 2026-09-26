@@ -11,6 +11,8 @@ import { userService } from '@/features/users'
 import { useApp } from '@/providers/AppProvider'
 import type { Course, CourseQuestion, Professor, ProfessorReview } from '@/types'
 import { ReportButton } from '@/components/moderation/ReportButton'
+import type { ReviewSummary } from '@/lib/services/ai'
+import { summarizeReviews } from '@/lib/utils/ai-summary'
 
 type Tab = 'overview' | 'reviews' | 'questions'
 type QuestionFilter = 'all' | 'course' | 'academic' | 'other'
@@ -26,6 +28,8 @@ export default function ProfessorDetail() {
   const [search, setSearch] = useState('')
   const [questionFilter, setQuestionFilter] = useState<QuestionFilter>('all')
   const [error, setError] = useState('')
+  const [summary, setSummary] = useState<ReviewSummary | null>(null)
+  const [summarizing, setSummarizing] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -48,6 +52,12 @@ export default function ProfessorDetail() {
   }), [questions, questionFilter, search])
   const selectTab = (next: Tab) => { setTab(next); setSearch(''); router.setParams({ tab: next }) }
   const openForm = (form: 'review' | 'question') => router.push(`/professor/${form}?id=${encodeURIComponent(id)}` as never)
+  const generateSummary = async () => {
+    setSummarizing(true)
+    try { setSummary(await summarizeReviews({ type: 'teacher', id, label: teacher?.name ?? 'this teacher' }, reviews)) }
+    catch (reason) { Alert.alert('Could not generate summary', reason instanceof Error ? reason.message : 'Please try again.') }
+    finally { setSummarizing(false) }
+  }
 
   if (error) return <SafeAreaView className="flex-1 items-center justify-center bg-[#F8FAFD] px-6 dark:bg-slate-950"><Text className="text-center text-sm text-muted">{error}</Text></SafeAreaView>
   if (!teacher) return <SafeAreaView className="flex-1 items-center justify-center bg-[#F8FAFD] dark:bg-slate-950"><Text className="text-sm text-muted">Loading teacher…</Text></SafeAreaView>
@@ -58,7 +68,7 @@ export default function ProfessorDetail() {
       <View className="mt-5 flex-row items-center gap-3"><View className="h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="text-2xl font-extrabold text-brand">{initials(teacher.name)}</Text></View><View className="flex-1"><Text className="text-sm font-extrabold text-[#172038] dark:text-white">{teacher.name}</Text><Text className="mt-1 text-xs text-[#52627A] dark:text-slate-300">{teacher.designation || 'Faculty member'}</Text><Text className="text-xs text-[#52627A] dark:text-slate-300">Department of {teacher.department}</Text>{teacher.email ? <View className="mt-1 flex-row items-center gap-1"><Feather name="mail" size={11} color="#64718B" /><Text className="text-[10px] text-[#64718B]">{teacher.email}</Text></View> : null}</View></View>
       <View className="mt-5 flex-row border-b border-slate-200 dark:border-slate-800">{(['overview', 'reviews', 'questions'] as const).map(item => <Pressable key={item} onPress={() => selectTab(item)} className="flex-1 items-center pb-3"><Text className={`text-xs font-bold ${tab === item ? 'text-brand' : 'text-[#64718B] dark:text-slate-400'}`}>{item === 'questions' ? 'Q&A' : item[0].toUpperCase() + item.slice(1)}</Text>{tab === item ? <View className="absolute bottom-0 h-0.5 w-full bg-brand" /> : null}</Pressable>)}</View>
       {tab === 'overview' ? <Overview courses={courses} teacher={teacher} onAsk={() => openForm('question')} onReview={() => openForm('review')} /> : null}
-      {tab === 'reviews' ? <Reviews reviews={visibleReviews} search={search} onSearch={setSearch} onWrite={() => openForm('review')} /> : null}
+      {tab === 'reviews' ? <Reviews reviews={visibleReviews} search={search} onSearch={setSearch} onWrite={() => openForm('review')} summary={summary} summarizing={summarizing} onSummary={() => { void generateSummary() }} /> : null}
       {tab === 'questions' ? <Questions questions={visibleQuestions} filter={questionFilter} onFilter={setQuestionFilter} search={search} onSearch={setSearch} onAsk={() => openForm('question')} /> : null}
     </ScrollView>
     <TeacherBottomNav />
@@ -69,8 +79,8 @@ function Overview({ courses, teacher, onAsk, onReview }: { courses: Course[]; te
   return <View><View className="mt-5 flex-row items-center justify-between"><Text className="text-sm font-extrabold text-[#172038] dark:text-white">Courses Taught</Text><Text className="text-[10px] font-bold text-brand">See all</Text></View><Card className="mt-3 p-2">{courses.length ? courses.map(course => <Pressable key={course.id} onPress={() => router.push(`/course/${course.id}`)} className="flex-row items-center border-b border-slate-100 px-2 py-3 last:border-b-0 dark:border-slate-800"><View className="h-11 w-11 items-center justify-center rounded-lg bg-blue-100 dark:bg-slate-800"><Text className="text-center text-[10px] font-extrabold leading-3 text-brand">{course.code.split(' ').join('\n')}</Text></View><View className="ml-3 flex-1"><Text className="text-xs font-bold text-[#172038] dark:text-white">{course.title}</Text><Text className="mt-1 text-[10px] text-muted">Level {course.level ?? '—'} · Term {course.term ?? '—'}</Text></View><Feather name="chevron-right" size={16} color="#172038" /></Pressable>) : <Empty title="No courses assigned" body="Assigned courses will appear here." />}</Card><Text className="mt-5 text-sm font-extrabold text-[#172038] dark:text-white">Contact</Text><Card className="mt-3 p-3"><Contact icon="mail" label={teacher.email ?? 'Not provided'} /><Contact icon="users" label={`Department\n${teacher.department}`} /><Contact icon="map-pin" label="CUET, Chattogram" /></Card><View className="mt-5 flex-row gap-2"><Button className="flex-1" variant="outline" onPress={onAsk}>Ask a Question</Button><Button className="flex-1" onPress={onReview}>Write a Review</Button></View></View>
 }
 
-function Reviews({ reviews, search, onSearch, onWrite }: { reviews: ProfessorReview[]; search: string; onSearch: (value: string) => void; onWrite: () => void }) {
-  return <View><View className="mt-4 flex-row items-center gap-2"><View className="flex-1 flex-row items-center rounded-xl bg-white px-3 dark:bg-slate-900"><Feather name="search" size={15} color="#64718B" /><TextInput value={search} onChangeText={onSearch} placeholder="Search reviews..." placeholderTextColor="#94A3B8" className="flex-1 px-2 py-2 text-xs text-[#172038] dark:text-white" /></View><View className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><Text className="text-[10px] text-muted">Most recent⌄</Text></View></View>{reviews.length ? reviews.map(review => <ReviewCard key={review.id} review={review} />) : <Empty title="No reviews yet" body="Student feedback will appear here." />}<Button className="mt-4" onPress={onWrite}>Write a Review</Button></View>
+function Reviews({ reviews, search, onSearch, onWrite, summary, summarizing, onSummary }: { reviews: ProfessorReview[]; search: string; onSearch: (value: string) => void; onWrite: () => void; summary: ReviewSummary | null; summarizing: boolean; onSummary: () => void }) {
+  return <View><View className="mt-4 flex-row items-center gap-2"><View className="flex-1 flex-row items-center rounded-xl bg-white px-3 dark:bg-slate-900"><Feather name="search" size={15} color="#64718B" /><TextInput value={search} onChangeText={onSearch} placeholder="Search reviews..." placeholderTextColor="#94A3B8" className="flex-1 px-2 py-2 text-xs text-[#172038] dark:text-white" /></View><View className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><Text className="text-[10px] text-muted">Most recent⌄</Text></View></View><Pressable onPress={onSummary} className="mt-3 rounded-xl bg-blue-50 p-3 dark:bg-slate-800"><Text className="text-xs font-bold text-brand">{summarizing ? 'Preparing…' : 'AI Review Summary'}</Text>{summary ? <><Text className="mt-1 text-sm leading-5 text-[#52627A] dark:text-slate-300">{summary.summary}</Text><Text className="mt-1 text-[10px] font-bold uppercase text-[#52627A] dark:text-slate-300">Sentiment: {summary.sentiment}</Text>{summary.positivePoints.length ? <Text className="mt-1 text-xs text-[#52627A] dark:text-slate-300">Positive: {summary.positivePoints.join(' • ')}</Text> : null}{summary.negativePoints.length ? <Text className="mt-1 text-xs text-[#52627A] dark:text-slate-300">Needs attention: {summary.negativePoints.join(' • ')}</Text> : null}</> : <Text className="mt-1 text-xs text-[#52627A] dark:text-slate-300">Tap to summarize student feedback.</Text>}</Pressable>{reviews.length ? reviews.map(review => <ReviewCard key={review.id} review={review} />) : <Empty title="No reviews yet" body="Student feedback will appear here." />}<Button className="mt-4" onPress={onWrite}>Write a Review</Button></View>
 }
 
 function ReviewCard({ review }: { review: ProfessorReview }) {

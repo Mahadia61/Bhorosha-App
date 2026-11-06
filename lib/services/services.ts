@@ -39,13 +39,18 @@ function adminNotificationCategory(data: Record<string, unknown>): AppNotificati
   return 'system'
 }
 
-function firebaseSignupError(reason: unknown) {
+function firebaseSignupError(reason: unknown, role?: Role) {
   const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
   if (code.includes('auth/email-already-in-use')) return new Error('This email already has an account. Sign in instead or use a different CUET email.')
   if (code.includes('auth/operation-not-allowed')) return new Error('Email/password sign-up is disabled in Firebase Authentication. Enable it in Firebase Console > Authentication > Sign-in method.')
   if (code.includes('auth/invalid-email')) return new Error('Enter a valid CUET email address.')
   if (code.includes('auth/weak-password')) return new Error('Use a stronger password with at least 8 characters.')
-  if (code.includes('permission-denied')) return new Error('Firebase rejected the profile write. Confirm the email is a CUET student address (u<number>@student.cuet.ac.bd), then deploy the current Firestore rules.')
+  if (code.includes('permission-denied')) {
+    const accountHint = role === 'teacher'
+      ? 'Confirm you used a @cuet.ac.bd email and that the current Firestore rules are deployed.'
+      : 'Confirm the email is a CUET student address (u<number>@student.cuet.ac.bd) and that the current Firestore rules are deployed.'
+    return new Error(`Firebase rejected the profile write. ${accountHint}`)
+  }
   if (code.includes('auth/network-request-failed')) return new Error('Firebase could not connect. Check your internet connection and Firebase configuration.')
   return reason instanceof Error ? reason : new Error('Account creation failed. Please try again.')
 }
@@ -280,7 +285,7 @@ export const services = {
     try {
       credential = await createUserWithEmailAndPassword(firebaseAuth, normalized, password)
     } catch (reason) {
-      throw firebaseSignupError(reason)
+      throw firebaseSignupError(reason, role)
     }
     const requiresEmailVerification = role === 'student'
     const profile: Profile = { id: credential.user.uid, name: name.trim(), email: normalized, role, department: normalizedDepartment, designation: role === 'teacher' ? designation?.trim() : undefined, darkMode: false, active: !requiresEmailVerification, emailVerified: !requiresEmailVerification, ...(role === 'student' && studentDetails && identity ? { batch: identity.batch, studentId: identity.studentId, currentLevel: studentDetails.currentLevel, currentTerm: studentDetails.currentTerm } : {}) }
@@ -308,11 +313,11 @@ export const services = {
       // Firebase Authentication without its required Firestore profile.
       await deleteUser(credential.user).catch(() => undefined)
       await firebaseSignOut(firebaseAuth).catch(() => undefined)
-      throw firebaseSignupError(reason)
+      throw firebaseSignupError(reason, role)
     }
     if (role === 'teacher') {
       const linked = await linkTeacherAccount(profile)
-      if (!linked.teacherProfileId && !linked.teacherLinkPending) await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom(profile))
+      if (!linked.teacherProfileId) await setDoc(doc(firestore, 'teacherDirectory', profile.id), directoryFrom(profile))
       return linked
     }
     if (requiresEmailVerification) await sendEmailVerification(credential.user)
@@ -324,23 +329,30 @@ export const services = {
     const normalized = normalizeEmail(email)
     if (!normalized || !password) throw new Error('Enter both email and password.')
     const credential = await signInWithEmailAndPassword(firebaseAuth, normalized, password)
-    await ensureTeacherAccount()
-    const profile = await authenticatedProfile(credential.user.uid, credential.user.emailVerified)
-    if (!profile) { await firebaseSignOut(firebaseAuth); throw new Error('Your account profile is not set up. Ask an administrator to create it.') }
-    if (profile.role === 'student' && credential.user.emailVerified === false) return { ...profile, emailVerified: false, active: false }
-    if (profile.role === 'teacher' && profile.active === false) {
+    try {
+      await ensureTeacherAccount()
+      const profile = await authenticatedProfile(credential.user.uid, credential.user.emailVerified)
+      if (!profile) { await firebaseSignOut(firebaseAuth); throw new Error('Your account profile is not set up. Ask an administrator to create it.') }
+      if (profile.role === 'student' && credential.user.emailVerified === false) return { ...profile, emailVerified: false, active: false }
+      if (profile.role === 'teacher' && profile.active === false) {
+        await firebaseSignOut(firebaseAuth)
+        throw new Error('This teacher account is inactive. An administrator must activate it from Member management before you can sign in.')
+      }
+      if (profile.active === false) { await firebaseSignOut(firebaseAuth); throw new Error('This account has been suspended. Contact an administrator.') }
+      return profile
+    } catch (reason) {
+      const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
+      if (!isTeacherEmail(normalized) || !code.endsWith('permission-denied')) throw reason
       await firebaseSignOut(firebaseAuth)
-      throw new Error('This teacher account is inactive. An administrator must activate it from Member management before you can sign in.')
+      throw new Error('Firebase blocked access to the teacher profile. Deploy the updated Firestore rules to this app’s Firebase project, then try again: firebase deploy --only firestore:rules --project YOUR_PROJECT_ID')
     }
-    if (profile.active === false) { await firebaseSignOut(firebaseAuth); throw new Error('This account has been suspended. Contact an administrator.') }
-    return profile
   },
 
   async resendEmailVerification() {
     const { auth: firebaseAuth } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in again before requesting verification.')
     const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
-    if (!profile || !['student', 'teacher'].includes(profile.role)) throw new Error('This account does not require email verification.')
+    if (!profile || profile.role !== 'student') throw new Error('Only student accounts require email verification.')
     await sendEmailVerification(firebaseAuth.currentUser)
   },
 
@@ -403,7 +415,7 @@ export const services = {
     if (next.photoUrl) value.photoUrl = next.photoUrl
     const batch = writeBatch(firestore)
     batch.set(doc(firestore, 'users', next.id), value, { merge: true })
-    if (next.role === 'teacher' && !next.teacherProfileId && !next.teacherLinkPending) batch.set(doc(firestore, 'teacherDirectory', next.id), directoryFrom(next), { merge: true })
+    if (next.role === 'teacher' && !next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.id), directoryFrom(next), { merge: true })
     if (next.role === 'teacher' && next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.teacherProfileId), { bio: next.bio ?? '', photoUrl: next.photoUrl ?? '', updatedAt: Date.now() }, { merge: true })
     await batch.commit()
     return next

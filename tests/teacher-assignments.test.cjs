@@ -49,7 +49,7 @@ before(async () => {
 beforeEach(async () => { await env.clearFirestore(); await seed({ 'users/admin': account('admin', 'admin', 'admin@example.com') }) })
 after(async () => { await env?.cleanup() })
 
-test('admin creates and assigns a profile before login; verified login reveals all assigned courses', async () => {
+test('admin creates and assigns a profile before login; unverified teacher login reveals all assigned courses', async () => {
   const admin = client('admin', 'admin@example.com')
   const teacher = await admin.saveTeacherProfile(teacherInput())
   assert.equal(teacher.linkedUserId, null)
@@ -57,7 +57,7 @@ test('admin creates and assigns a profile before login; verified login reveals a
   const first = await admin.services.createCourse(courseInput(teacher))
   const second = await admin.services.createCourse({ ...courseInput(teacher), code: 'CSE 102' })
   await seed({ 'users/teacher': account('teacher') })
-  const teacherClient = client('teacher')
+  const teacherClient = client('teacher', 'teacher1@cuet.ac.bd', false)
   const linked = await teacherClient.linkTeacherAccount(account('teacher'))
   assert.equal(linked.teacherProfileId, teacher.id)
   assert.equal((await getDoc(doc(admin.db, 'teacherProfiles', teacher.id))).data().linkedUserId, 'teacher')
@@ -67,13 +67,16 @@ test('admin creates and assigns a profile before login; verified login reveals a
   assert.equal((await teacherClient.services.courses())[0].teacherNames[0], 'Updated Official Name')
 })
 
-test('unverified, wrong-email and student accounts cannot claim profiles or forge links', async () => {
+test('unverified teacher can link by matching email; wrong-email and student accounts cannot claim profiles', async () => {
   const admin = client('admin', 'admin@example.com')
   const teacher = await admin.saveTeacherProfile(teacherInput())
+  const course = await admin.services.createCourse(courseInput(teacher))
   await seed({ 'users/pending': account('pending'), 'users/stranger': account('stranger', 'teacher', 'teacher2@cuet.ac.bd'), 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd') })
   const pending = client('pending', 'teacher1@cuet.ac.bd', false)
-  assert.equal((await pending.linkTeacherAccount(account('pending'))).teacherLinkPending, true)
-  for (const [id, email, verified] of [['pending', 'teacher1@cuet.ac.bd', false], ['stranger', 'teacher2@cuet.ac.bd', true], ['student', 'u1@student.cuet.ac.bd', true]]) {
+  const linked = await pending.linkTeacherAccount(account('pending'))
+  assert.equal(linked.teacherProfileId, teacher.id)
+  assert.deepEqual((await pending.services.courses()).map(item => item.id), [course.id])
+  for (const [id, email, verified] of [['stranger', 'teacher2@cuet.ac.bd', true], ['student', 'u1@student.cuet.ac.bd', true]]) {
     const user = client(id, email, verified)
     const batch = writeBatch(user.db)
     batch.update(doc(user.db, 'users', id), { teacherProfileId: teacher.id, updatedAt: Date.now() })
@@ -101,7 +104,7 @@ test('provisioned login credentials get an app account from the admin profile wi
   assert.equal((await teacherClient.services.courses())[0].id, course.id)
 })
 
-test('many-to-many assignments, course feedback, Q&A and pre-login notifications survive linking and removal', async () => {
+test('unverified teacher can access assigned course feedback and Q&A; assignments and notifications survive linking and removal', async () => {
   const admin = client('admin', 'admin@example.com')
   const first = await admin.saveTeacherProfile(teacherInput())
   const second = await admin.saveTeacherProfile({ ...teacherInput('teacher2@cuet.ac.bd'), name: 'Second Teacher' })
@@ -111,7 +114,7 @@ test('many-to-many assignments, course feedback, Q&A and pre-login notifications
   const student = client('student', 'u1@student.cuet.ac.bd')
   await student.services.addReview({ courseId: course.id, text: 'Useful explanations.', ratings, anonymous: true })
   await student.services.addCourseQuestion({ courseId: course.id, category: 'Exam', text: 'Which chapters are included?', anonymous: true })
-  const teacherClient = client('teacher')
+  const teacherClient = client('teacher', 'teacher1@cuet.ac.bd', false)
   const linked = await teacherClient.linkTeacherAccount(account('teacher'))
   const [review] = await teacherClient.services.reviews(course.id)
   const [question] = await teacherClient.services.teacherQuestions('teacher')

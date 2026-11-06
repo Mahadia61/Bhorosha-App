@@ -49,7 +49,6 @@ export async function linkTeacherAccount(profile: Profile): Promise<Profile> {
   if (!email) return profile
   const reservation = await getDoc(doc(db, 'teacherProfileEmails', email))
   if (!reservation.exists()) return profile
-  if (!auth.currentUser.emailVerified) return { ...profile, teacherLinkPending: true }
   const firestore = db
   const teacherProfileId = String(reservation.data().teacherProfileId)
   await runTransaction(firestore, async transaction => {
@@ -65,7 +64,7 @@ export async function linkTeacherAccount(profile: Profile): Promise<Profile> {
     // entry. Keep its old reviews valid, but show only the canonical profile.
     if (teacherProfileId !== profile.id && legacyDirectory.exists()) transaction.update(legacyDirectoryRef, { active: false, updatedAt: Date.now() })
   })
-  return { ...profile, teacherProfileId, teacherLinkPending: false }
+  return { ...profile, teacherProfileId }
 }
 
 export async function courseTeacherAssignments(ids: string[]) {

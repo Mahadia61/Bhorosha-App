@@ -12,11 +12,147 @@ The project contains:
 - An optional Node.js/Express backend for profile-photo uploads, moderation
   warnings, and privacy-preserving AI review summaries.
 
+## Project report: system design
+
+The following sections describe Bhorosha's implemented architecture and core
+workflows. The flowcharts are provided as Mermaid source text, not image files,
+so they can be rendered or recreated as figures for a project report.
+
+### 1. Methodology flowchart
+
+Bhorosha follows an iterative, feature-based development process. Requirements
+are translated into role-specific features and data rules, implemented in the
+Expo client and Firebase services, and validated before the next iteration.
+
+```mermaid
+flowchart TD
+  A([Start]) --> B[Gather requirements and define roles]
+  B --> C[Design features, data, and access rules]
+  C --> D[Build the app with Firebase services]
+  D --> E[Test the feature]
+  E --> F{Works as expected?}
+  F -->|No| D
+  F -->|Yes| G[Review and release]
+  G --> H([Next feature])
+```
+
+### 2. Technology stack
+
+| Area | Technologies and role |
+|---|---|
+| Client application | Expo SDK 54, React Native 0.81, React 19, and TypeScript 5.9 |
+| Navigation | Expo Router 6 for file-based routes and role-specific screens |
+| Styling | NativeWind 4 and Tailwind CSS 3 |
+| Authentication | Firebase Authentication |
+| Primary data store | Cloud Firestore, protected by Firestore Security Rules |
+| Optional API | Node.js 20+, Express 5, and Firebase Admin SDK |
+| Optional media and AI services | Cloudinary for profile images; a configured AI-compatible provider for summaries, assistance, and moderation |
+| Validation | TypeScript checks and Firestore Emulator-backed teacher-assignment regression tests |
+
+The mobile/web client communicates directly with Firebase for core application
+features. The Express service is an optional integration layer for operations
+that require server-side credentials or external services; it is not required
+for core browsing, reviews, questions, guides, or notifications.
+
+### 3. Frontend layer
+
+The frontend is a cross-platform Expo application for mobile and web. Expo
+Router organizes screens by route and user role, while shared components,
+feature modules, hooks, and services support reusable UI and application
+logic. The main experiences are:
+
+- **Students:** discover courses and teacher profiles; write course and teacher
+  reviews; ask questions; read answers and course guides; and view activity
+  and notifications.
+- **Teachers:** view assigned courses and feedback, answer course questions,
+  respond to reviews, and maintain profile details.
+- **Administrators:** manage users, teacher profiles, courses and assignments,
+  review reports and moderation activity, and view platform analytics.
+
+The frontend uses TypeScript domain types and shared validation, formatting,
+permission, and state helpers. It calls Firebase-backed services for core
+features and calls the optional backend only for supported server-side
+operations.
+
+### 4. Authentication module
+
+Firebase Authentication manages account credentials and authentication
+sessions. The app supports email-and-password sign-up and sign-in, email
+verification, verification-email resending, password reset, and sign-out.
+Authenticated users have application profile and role information stored
+separately in Firestore.
+
+After authentication, Bhorosha uses the profile and role to provide the
+appropriate student, teacher, or administrator experience. Student access to
+protected features requires a verified email. Firestore Security Rules enforce
+data access constraints; backend requests that require authentication send a
+Firebase ID token, which the Express service verifies before performing
+protected operations. Firebase credentials are not stored in application
+profile documents.
+
+### 5. Backend layer
+
+The optional backend is a Node.js/Express service implemented in TypeScript.
+It uses the Firebase Admin SDK to verify ID tokens and perform authorized
+server-side operations. Implemented API capabilities include:
+
+- Teacher profile-photo uploads to Cloudinary.
+- Report submission and administrator moderation actions, including warnings.
+- Optional AI review summaries, academic-assistant responses, and moderation.
+- An administrative course-instance migration operation.
+
+AI and Cloudinary credentials remain on the server. If the backend or optional
+provider is not configured, backend-dependent operations are unavailable; core
+client features that do not depend on them continue to use Firebase directly.
+
+### 6. Database layer
+
+Cloud Firestore is Bhorosha's implemented primary database; the project does
+not use a relational SQL database. Firestore Security Rules govern client
+access, while the optional backend uses the Firebase Admin SDK for its
+authorized operations.
+
+The stored data covers user and teacher profiles, departments, courses and
+course offerings, teacher assignments, reviews and ratings, teacher responses,
+questions and answers, course guides, reports and appeals, moderation history,
+notifications, and activity. Private ownership records are separated from
+public review and question content so a user's identity is not exposed with
+anonymous contributions. Firestore documents and subcollections are organized
+for the application's access patterns; the logical entities in the project's
+relational-mapping documentation are not an implemented SQL schema.
+
+### 7. System workflow
+
+This flowchart shows the typical request path, role-specific destinations,
+direct Firestore access, and the optional backend boundary.
+
+```mermaid
+flowchart TD
+  A([Open Bhorosha]) --> B[Sign up or sign in]
+  B --> C[Firebase Authentication]
+  C --> D[Load profile and role; verify student email]
+  D --> E{User role}
+  E -->|Student| F[Browse, review, and ask questions]
+  E -->|Teacher| G[View courses and respond]
+  E -->|Administrator| H[Manage courses and moderation]
+  F --> I{Needs optional backend?}
+  G --> I
+  H --> I
+  I -->|No| J[Access core data in Firestore]
+  J --> K[Security Rules check access]
+  K --> L[Display result]
+  I -->|Yes| M[Backend verifies ID token]
+  M --> N[Perform protected task or call external service]
+  N --> L
+```
+
 ## Features
 
 ### Students
 
-- Sign up with email verification and manage a personal profile.
+- Students verify their email before accessing Bhorosha; teachers sign in with
+  the CUET email on their admin-created profile without email verification.
+  Manage a personal profile.
 - Browse department courses and teacher profiles.
 - Submit and edit course and teacher reviews.
 - Ask course questions, read answers, and follow activity notifications.
@@ -34,16 +170,6 @@ The project contains:
 - Manage users, teacher profiles, courses, assignments, and moderation.
 - View platform activity and analytics.
 - Review reported content and manage account settings.
-
-## Tech stack
-
-- [Expo](https://expo.dev/) and [React Native](https://reactnative.dev/)
-- TypeScript
-- Expo Router
-- Firebase Authentication and Cloud Firestore
-- NativeWind/Tailwind CSS
-- Node.js, Express, and Firebase Admin SDK (optional backend)
-- Cloudinary (optional profile-photo hosting)
 
 ## Getting started
 

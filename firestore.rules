@@ -236,8 +236,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teacherProfileId', 'updatedAt'])
         && validFreshClientTime(request.resource.data.updatedAt)
         && teacher.linkedUserId == userId
-        && (isAdmin() || (own(userId) && isTeacher() && request.auth.token.email_verified == true
-          && teacher.email == request.auth.token.email.lower()));
+        && (isAdmin() || (own(userId) && isTeacher()
+          && teacherEmailOwner(teacher.email)));
     }
 
     // Private management records. Emails never enter the public directory.
@@ -257,8 +257,7 @@ service cloud.firestore {
       allow update: if (isAdmin() && validTeacherProfile()
           && request.resource.data.linkedUserId == resource.data.linkedUserId
           && (resource.data.linkedUserId == null || request.resource.data.email == resource.data.email))
-        || (isTeacher() && request.auth.token.email_verified == true
-          && resource.data.email == request.auth.token.email.lower()
+        || (isTeacher() && teacherEmailOwner(resource.data.email)
           && resource.data.linkedUserId == null
           && request.resource.data.linkedUserId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId'])

@@ -17,7 +17,7 @@ An email-less profile can receive courses immediately. Add the account email whe
 
 ## Login and permissions
 
-Teacher signup and login retain the existing CUET teacher email format. A teacher who signs in with the profile's verified Firebase Auth email is linked automatically. If the email has not been verified, a notice on the teacher dashboard and My Courses opens the existing verification screen. Use its verification email button, open the email link, then select **I verified my email**. The assigned courses become available without reassignment.
+Teacher signup and login retain the existing CUET teacher email format. Linking connects the teacher's Bhorosha account to the admin-created teacher profile. Teachers do not need email verification: signing in with the same CUET email entered on the admin-created profile links the account and opens its assigned courses, reviews, and Q&A. The profile link still requires an exact email match and can only be claimed once.
 
 Existing imported teachers retain their established access and do not need to repeat verification. Account IDs remain distinct from profile IDs throughout authentication and private user data.
 

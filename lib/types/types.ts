@@ -18,7 +18,6 @@ export type RatingMap = {
 export type Profile = {
   id: string
   teacherProfileId?: string
-  teacherLinkPending?: boolean
   name: string
   email: string
   role: Role

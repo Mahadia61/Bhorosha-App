@@ -33,8 +33,8 @@ backend/dist/
 # Remove this line if you want to upload Firebase Functions code
 functions/
 
-# Documentation files
-API.md
-FIREBASE_SETUP.md
-DATABASE_SCHEMA.md
-AI_SUMMARY_SETUP.md
+# Ignore everything inside docs
+docs/*
+
+# Allow only README.md
+!docs/README.md

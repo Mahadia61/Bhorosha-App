@@ -27,7 +27,6 @@ export const roleTabs: Record<Exclude<Role, never>, TabItem[]> = {
     { name: 'dashboard', label: 'Dashboard', icon: 'home', href: '/(teacher-tabs)/dashboard' },
     { name: 'courses', label: 'My Courses', icon: 'book', href: '/(teacher-tabs)/courses' },
     { name: 'questions', label: 'Q&A', icon: 'message-circle', href: '/(teacher-tabs)/questions' },
-    { name: 'profile', label: 'Profile', icon: 'user', href: '/(teacher-tabs)/profile' },
   ],
   admin: [
     { name: 'overview', label: 'Overview', icon: 'grid', href: '/(admin-tabs)/overview' },

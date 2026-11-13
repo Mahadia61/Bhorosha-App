@@ -11,6 +11,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useApp } from "@/providers/AppProvider";
+import { Card, PageHeader } from "@/components/ui/ui";
+import { ProfileActionRow, ProfileIdentityCard } from "@/components/common/ProfileComponents";
 
 export default function AdminProfile() {
   const { profile, updateProfile, signOut } = useApp();
@@ -38,17 +40,15 @@ export default function AdminProfile() {
     }
   };
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 112 }}>
-        <ProfileHeader
-          title={editing ? "Edit Profile" : "Profile"}
-          subtitle={
-            editing
-              ? "Update your personal information."
-              : "Your account information."
-          }
-          back={editing ? () => setEditing(false) : undefined}
-        />
+        <View className="mt-4">
+          <PageHeader
+            title={editing ? "Edit Profile" : "Profile"}
+            subtitle="Manage your account and preferences."
+            onBack={editing ? () => setEditing(false) : undefined}
+          />
+        </View>
         {editing ? (
           <>
             <Text className="mt-8 text-sm font-semibold text-slate-950 dark:text-white">
@@ -84,53 +84,39 @@ export default function AdminProfile() {
           </>
         ) : (
           <>
-            <View className="mt-8 flex-row items-center rounded-3xl bg-white p-5 shadow-sm dark:bg-slate-900">
-              <View className="h-20 w-20 items-center justify-center rounded-full bg-[#1670F8]">
-                <Text className="text-3xl font-bold text-white">
-                  {profile.name.trim().charAt(0).toUpperCase() || "A"}
-                </Text>
-              </View>
-              <View className="ml-4 flex-1">
-                <Text className="text-lg font-bold text-slate-950 dark:text-white">
-                  {profile.name}
-                </Text>
-                <Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  {profile.email}
-                </Text>
-                <View className="mt-3 self-start rounded-lg bg-blue-100 px-3 py-1">
-                  <Text className="text-xs font-bold text-blue-700">
-                    Administrator
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View className="mt-6 overflow-hidden rounded-3xl bg-white shadow-sm dark:bg-slate-900">
-              <ProfileRow
+            <ProfileIdentityCard
+              name={profile.name}
+              email={profile.email}
+              role="Administrator"
+              photoUrl={profile.photoUrl}
+            />
+            <Card className="mt-3 p-0">
+              <ProfileActionRow
                 icon="user"
                 title="Edit Profile"
                 onPress={() => setEditing(true)}
               />
-              <ProfileRow
+              <ProfileActionRow
                 icon="clock"
                 title="Activity Log"
                 onPress={() => router.push("/admin-activity")}
               />
-              <ProfileRow
+              <ProfileActionRow
                 icon="settings"
                 title="Settings"
                 onPress={() => router.push("/admin-settings")}
               />
-            </View>
-            <View className="mt-6 overflow-hidden rounded-3xl bg-rose-50 shadow-sm">
-              <ProfileRow
+            </Card>
+            <Card className="mt-3 p-0">
+              <ProfileActionRow
                 icon="log-out"
-                title="Logout"
+                title="Sign out"
                 danger
                 onPress={() => {
                   void signOut().then(() => router.replace("/welcome"));
                 }}
               />
-            </View>
+            </Card>
           </>
         )}
       </ScrollView>
@@ -139,66 +125,6 @@ export default function AdminProfile() {
   );
 }
 
-function ProfileHeader({
-  title,
-  subtitle,
-  back,
-}: {
-  title: string;
-  subtitle: string;
-  back?: () => void;
-}) {
-  return (
-    <View className="flex-row items-start">
-      {back ? (
-        <Pressable
-          onPress={back}
-          className="mr-3 h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-slate-900"
-        >
-          <Feather name="arrow-left" size={22} color="#14151A" />
-        </Pressable>
-      ) : null}
-      <View className="flex-1">
-        <Text className="text-2xl font-bold text-slate-950 dark:text-white">
-          {title}
-        </Text>
-        <Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          {subtitle}
-        </Text>
-      </View>
-    </View>
-  );
-}
-function ProfileRow({
-  icon,
-  title,
-  danger = false,
-  onPress,
-}: {
-  icon: keyof typeof Feather.glyphMap;
-  title: string;
-  danger?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="flex-row items-center border-b border-slate-100 px-5 py-5 last:border-b-0 dark:border-slate-800"
-    >
-      <View
-        className={`h-10 w-10 items-center justify-center rounded-xl ${danger ? "bg-rose-100" : "bg-blue-100"}`}
-      >
-        <Feather name={icon} size={19} color={danger ? "#EF4444" : "#1670F8"} />
-      </View>
-      <Text
-        className={`ml-4 flex-1 text-base font-semibold ${danger ? "text-rose-500" : "text-slate-950 dark:text-white"}`}
-      >
-        {title}
-      </Text>
-      <Feather name="chevron-right" size={20} color="#64748B" />
-    </Pressable>
-  );
-}
 function AdminBottomNav() {
   const tabs = [
     { label: "Overview", icon: "grid", href: "/(admin-tabs)/overview" },

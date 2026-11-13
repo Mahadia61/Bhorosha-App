@@ -10,7 +10,7 @@ import {
   type TextInputProps,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router, type Href } from "expo-router";
+import { router, useSegments, type Href } from "expo-router";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -19,15 +19,19 @@ import {
 import { colors, roleTabs, tabBarStyle, type TabItem } from "./theme";
 import { useRoleChrome } from "./useRoleChrome";
 import type { Role } from "@/lib/types/types";
+import { useApp } from "@/providers/AppProvider";
 
 export { colors, roleTabs, tabBarStyle } from "./theme";
 
 export function Screen({
   children,
-  edges = ["top"],
+  edges,
 }: PropsWithChildren<{ edges?: Edge[] }>) {
+  const { profile } = useApp()
+  const segments = useSegments()
+  const hasPersistentHeader = !!profile && !segments.some(segment => String(segment) === '(auth)')
   return (
-    <SafeAreaView edges={edges} className="flex-1 bg-surface dark:bg-slate-950">
+    <SafeAreaView edges={edges ?? (hasPersistentHeader ? ["left", "right", "bottom"] : ["top"])} className="flex-1 bg-surface dark:bg-slate-950">
       {children}
     </SafeAreaView>
   );
@@ -206,26 +210,48 @@ export function RoundIconButton({
 }
 
 export function AvatarButton({
-  initial,
-  photoUrl,
   onPress,
   label,
 }: {
-  initial: string;
-  photoUrl?: string;
   onPress: () => void;
   label: string;
 }) {
+  const { isDark } = useApp()
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      className="h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-brandSoft"
+      className="h-11 w-11 items-center justify-center rounded-full border border-line bg-white dark:border-slate-800 dark:bg-slate-900"
     >
-      <Text className="text-lg font-bold text-brand">{initial}</Text>
+      <Feather name="user" size={20} color={isDark ? "#E2E8F0" : colors.ink} />
     </Pressable>
   );
+}
+
+export function AppRoleActions({ visible }: { visible: boolean }) {
+  const chrome = useRoleChrome()
+  const insets = useSafeAreaInsets()
+  if (!visible || !chrome.profile) return null
+
+  return (
+    <View
+      style={{ height: 56 + insets.top, paddingTop: insets.top }}
+      className="flex-row items-center justify-end gap-3 border-b border-line bg-surface px-5 dark:border-slate-800 dark:bg-slate-950"
+    >
+      <RoundIconButton
+        icon="bell"
+        label="Open notifications"
+        unread={chrome.unread}
+        onPress={() => router.push(chrome.notificationHref)}
+      />
+      <RoundIconButton
+        icon="user"
+        label="Open profile"
+        onPress={() => router.push(chrome.profileHref)}
+      />
+    </View>
+  )
 }
 
 export function PageHeader({
@@ -233,8 +259,8 @@ export function PageHeader({
   subtitle,
   eyebrow,
   onBack,
-  showBell = true,
-  showAvatar = true,
+  showBell = false,
+  showAvatar = false,
   compact = false,
   trailing,
 }: {
@@ -297,8 +323,6 @@ export function PageHeader({
           ) : null}
           {showAvatar ? (
             <AvatarButton
-              initial={chrome.initial}
-              photoUrl={chrome.photoUrl}
               label="Open profile"
               onPress={() => router.push(chrome.profileHref)}
             />

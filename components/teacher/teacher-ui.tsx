@@ -210,10 +210,10 @@ export function TeacherQuestionCard({ question, course, liked, onLike, onAnswere
   }
   return <Card className="mt-3">
     <View className="flex-row items-start">
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="font-bold text-brand">S</Text></View>
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="font-bold text-brand">{question.anonymous ? 'S' : (question.displayName ?? 'S').charAt(0).toUpperCase()}</Text></View>
       <View className="ml-3 flex-1">
         <Text className="font-bold leading-5 text-ink dark:text-white">{title}</Text>
-        <Text className="mt-1 text-xs text-muted">Student · {formatDate(question.createdAt)}{course?.level ? ` · Level ${course.level}` : ''}</Text>
+        <Text className="mt-1 text-xs text-muted">{question.anonymous ? 'Anonymous student' : question.displayName ?? 'Student'} · {formatDate(question.createdAt)}{course?.level ? ` · Level ${course.level}` : ''}</Text>
         {body ? <Text className="mt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">{body}</Text> : null}
         <View className="mt-2 flex-row flex-wrap gap-1.5">
           <Text className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-slate-800">{question.category}</Text>

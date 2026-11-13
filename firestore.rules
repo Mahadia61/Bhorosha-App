@@ -156,25 +156,44 @@ service cloud.firestore {
         && request.resource.data.createdAt is number
         && (!request.resource.data.keys().hasAll(['updatedAt']) || request.resource.data.updatedAt is number);
     }
+    function validProfessorAspects(aspects) {
+      return aspects is map
+        && aspects.size() <= 5
+        && aspects.keys().hasOnly(['Teaching Quality', 'Communication', 'Availability', 'Supportiveness', 'Fairness'])
+        && (!('Teaching Quality' in aspects) || (aspects['Teaching Quality'] is int && aspects['Teaching Quality'] >= 1 && aspects['Teaching Quality'] <= 5))
+        && (!('Communication' in aspects) || (aspects['Communication'] is int && aspects['Communication'] >= 1 && aspects['Communication'] <= 5))
+        && (!('Availability' in aspects) || (aspects['Availability'] is int && aspects['Availability'] >= 1 && aspects['Availability'] <= 5))
+        && (!('Supportiveness' in aspects) || (aspects['Supportiveness'] is int && aspects['Supportiveness'] >= 1 && aspects['Supportiveness'] <= 5))
+        && (!('Fairness' in aspects) || (aspects['Fairness'] is int && aspects['Fairness'] >= 1 && aspects['Fairness'] <= 5));
+    }
+    function validProfessorReviewTags(tags) {
+      return tags is list && tags.size() <= 7
+        && tags.hasOnly(['Clear explanation', 'Supportive', 'Well organized', 'Approachable', 'Helpful', 'Fair', 'Other']);
+    }
     function validPublicProfessorReview() {
       return request.resource.data.keys().hasAll(['professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['professorId', 'text', 'rating', 'aspects', 'tags', 'anonymous', 'displayName', 'createdAt'])
         && request.resource.data.professorId is string && validText(request.resource.data.text, 1500)
         && request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && (!('aspects' in request.resource.data) || validProfessorAspects(request.resource.data.aspects))
+        && (!('tags' in request.resource.data) || validProfessorReviewTags(request.resource.data.tags))
         && request.resource.data.anonymous is bool
         && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
           || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
         && validFreshClientTime(request.resource.data.createdAt);
     }
     function validPublicQuestion() {
-      return request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+      return request.resource.data.keys().hasAll(['courseId', 'category', 'text', 'anonymous', 'displayName', 'notificationKey', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'displayName', 'notificationKey', 'createdAt'])
         && request.resource.data.courseId is string
         && (!('courseInstanceId' in request.resource.data)
           || (request.resource.data.courseInstanceId is string
             && exists(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId))
             && get(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId)).data.courseId == request.resource.data.courseId))
-        && request.resource.data.category in ['Course Content', 'Exam', 'Assignment', 'Project', 'Registration', 'Other']
-        && validText(request.resource.data.text, 1500) && request.resource.data.anonymous == true
+        && request.resource.data.category in ['Course Content', 'Exam', 'Assignment', 'Project', 'Registration', 'Academic', 'Advising', 'Other']
+        && validText(request.resource.data.text, 1500) && request.resource.data.anonymous is bool
+        && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
+          || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
         && validText(request.resource.data.notificationKey, 128)
         && validFreshClientTime(request.resource.data.createdAt);
     }
@@ -193,6 +212,10 @@ service cloud.firestore {
       let mirror = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/professorReviews/$(reviewId)).data;
       return mirror.id == reviewId && mirror.professorId == request.resource.data.professorId
         && mirror.text == request.resource.data.text && mirror.rating == request.resource.data.rating
+        && ((!('aspects' in request.resource.data) && !('aspects' in mirror))
+          || mirror.aspects == request.resource.data.aspects)
+        && ((!('tags' in request.resource.data) && !('tags' in mirror))
+          || mirror.tags == request.resource.data.tags)
         && mirror.anonymous == request.resource.data.anonymous && mirror.displayName == request.resource.data.displayName
         && mirror.createdAt == request.resource.data.createdAt;
     }
@@ -202,6 +225,7 @@ service cloud.firestore {
         && ((!('courseInstanceId' in request.resource.data) && !('courseInstanceId' in mirror))
           || mirror.courseInstanceId == request.resource.data.courseInstanceId)
         && mirror.category == request.resource.data.category && mirror.text == request.resource.data.text
+        && mirror.displayName == request.resource.data.displayName
         && mirror.notificationKey == request.resource.data.notificationKey
         && mirror.anonymous == request.resource.data.anonymous && mirror.createdAt == request.resource.data.createdAt;
     }
@@ -328,10 +352,14 @@ service cloud.firestore {
       match /professorReviews/{reviewId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && isStudent()
-          && request.resource.data.keys().hasOnly(['id', 'professorId', 'text', 'rating', 'anonymous', 'displayName', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'professorId', 'text', 'rating', 'aspects', 'tags', 'anonymous', 'displayName', 'createdAt'])
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.professorId == request.resource.data.professorId
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.text == request.resource.data.text
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.rating == request.resource.data.rating
+          && ((!('aspects' in request.resource.data) && !('aspects' in getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data))
+            || getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.aspects == request.resource.data.aspects)
+          && ((!('tags' in request.resource.data) && !('tags' in getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data))
+            || getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.tags == request.resource.data.tags)
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.anonymous == request.resource.data.anonymous
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.displayName == request.resource.data.displayName
           && getAfter(/databases/$(database)/documents/professorReviews/$(reviewId)).data.createdAt == request.resource.data.createdAt
@@ -342,10 +370,11 @@ service cloud.firestore {
       match /questions/{questionId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && isStudent()
-          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'notificationKey', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'category', 'text', 'anonymous', 'displayName', 'notificationKey', 'createdAt'])
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId == request.resource.data.courseId
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.category == request.resource.data.category
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.text == request.resource.data.text
+          && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.displayName == request.resource.data.displayName
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.notificationKey == request.resource.data.notificationKey
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.anonymous == request.resource.data.anonymous
           && getAfter(/databases/$(database)/documents/courseQuestions/$(questionId)).data.createdAt == request.resource.data.createdAt
@@ -371,9 +400,11 @@ service cloud.firestore {
       match /guides/{guideId} {
         allow read: if own(userId) && activeUser();
         allow create: if own(userId) && isStudent()
-          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['id', 'courseId', 'courseInstanceId', 'anonymous', 'displayName', 'createdAt'])
           && request.resource.data.id == guideId
           && request.resource.data.courseId is string
+          && getAfter(/databases/$(database)/documents/courseGuides/$(guideId)).data.anonymous == request.resource.data.anonymous
+          && getAfter(/databases/$(database)/documents/courseGuides/$(guideId)).data.displayName == request.resource.data.displayName
           && validFreshClientTime(request.resource.data.createdAt)
           && existsAfter(/databases/$(database)/documents/courseGuides/$(guideId))
           && getAfter(/databases/$(database)/documents/courseGuides/$(guideId)).data.courseId == request.resource.data.courseId
@@ -556,8 +587,14 @@ service cloud.firestore {
     match /courseGuides/{guideId} {
       allow read: if canReadCourseContent(resource.data.courseId);
       allow create: if isStudent() && studentCanAccessCourse(request.resource.data.courseId)
-        && request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'title', 'text', 'resources', 'createdAt'])
+        && request.resource.data.keys().hasAll(['courseId', 'title', 'text', 'anonymous', 'displayName', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['courseId', 'courseInstanceId', 'category', 'title', 'text', 'resources', 'anonymous', 'displayName', 'createdAt'])
+        && (!('category' in request.resource.data)
+          || request.resource.data.category in ['Preparation Tips', 'Recommended Books', 'Project Ideas', 'Difficulty Level', 'Study Strategy', 'General Advice'])
         && validText(request.resource.data.title, 140) && validText(request.resource.data.text, 2000)
+        && request.resource.data.anonymous is bool
+        && ((request.resource.data.anonymous == true && request.resource.data.displayName == null)
+          || (request.resource.data.anonymous == false && request.resource.data.displayName == userProfile().data.name))
         && (!('courseInstanceId' in request.resource.data)
           || (request.resource.data.courseInstanceId is string
             && exists(/databases/$(database)/documents/courseInstances/$(request.resource.data.courseInstanceId))
@@ -604,21 +641,6 @@ service cloud.firestore {
     match /moderationHistory/{historyId} {
       allow read, create: if isAdmin();
       allow update, delete: if false;
-    }
-
-    match /userNotifications/{notificationId} {
-      allow read: if activeUser() && resource.data.recipientId == request.auth.uid;
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['recipientId', 'reportId', 'title', 'body', 'read', 'createdAt'])
-        && request.resource.data.recipientId is string
-        && validText(request.resource.data.title, 140)
-        && validText(request.resource.data.body, 500)
-        && request.resource.data.read == false
-        && validFreshClientTime(request.resource.data.createdAt);
-      allow update: if activeUser() && resource.data.recipientId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
-        && request.resource.data.read == true;
-      allow delete: if false;
     }
 
     match /appeals/{appealId} {

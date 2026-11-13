@@ -16,7 +16,10 @@ export default function TeacherNotifications() {
     if (!profile) return
     try { setItems(await notificationService.teacherNotifications(profile.id)) } catch (reason) { Alert.alert('Could not load notifications', reason instanceof Error ? reason.message : 'Please try again.') }
   }, [profile])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (!profile || profile.role !== 'teacher') return
+    return notificationService.subscribeTeacherNotifications(profile.id, setItems, reason => Alert.alert('Could not watch notifications', reason.message))
+  }, [profile])
   const visible = useMemo(() => items.filter(item => filter === 'all' || !item.read), [items, filter])
   if (profile?.role !== 'teacher') return <Redirect href="/" />
   return <Screen>

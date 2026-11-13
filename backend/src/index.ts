@@ -16,7 +16,7 @@ type Profile = { uid: string; teacherProfileId?: string; name: string; departmen
 type AuthenticatedRequest = Request & { profile?: Profile }
 type SummarySubject = 'course' | 'teacher' | 'assignedCourses'
 type ReviewRecord = { text: string; score: number }
-type ModerationReport = { contentType: 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer' | 'courseGuide' | 'comment'; contentId: string; courseInstanceId?: string; questionId?: string; reason: string; category?: string; description?: string; reporterId?: string; reporterRole?: Role; reportedUserId?: string; status: string }
+type ModerationReport = { contentType: 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer' | 'courseGuide' | 'comment'; contentId: string; courseInstanceId?: string; questionId?: string; reason: string; category?: string; description?: string; reporterId?: string; reporterRole?: Role; status: string }
 type AiResult = { summary: string; source: 'ai' | 'local' }
 const legacyInstanceId = (courseId: string) => `${courseId}--legacy`
 
@@ -110,23 +110,6 @@ async function canReadCourse(profile: Profile, courseId: string) {
     || (profile.role === 'student' && course.department === profile.department)
     || (profile.role === 'teacher' && (teacherIds.includes(profile.uid) || teacherIds.includes(profile.teacherProfileId ?? '')))
   return allowed ? course : null
-}
-
-async function authorUidFromMirror(collectionName: 'courseReviews' | 'professorReviews' | 'questions' | 'answers' | 'guides', contentId: string) {
-  const mirrors = await firestore.collectionGroup(collectionName).where('id', '==', contentId).limit(1).get()
-  const mirror = mirrors.docs[0]
-  // The public document does not carry an `id` field; only the owner mirror
-  // does. Its grandparent is therefore the private users/{uid} document.
-  return mirror?.ref.parent.parent?.id ?? null
-}
-
-async function reportAuthorUid(report: ModerationReport) {
-  if (report.contentType === 'courseReview') return authorUidFromMirror('courseReviews', report.contentId)
-  if (report.contentType === 'professorReview') return authorUidFromMirror('professorReviews', report.contentId)
-  if (report.contentType === 'courseQuestion') return authorUidFromMirror('questions', report.contentId)
-  if (report.contentType === 'answer') return authorUidFromMirror('answers', report.contentId)
-  if (report.contentType === 'courseGuide') return authorUidFromMirror('guides', report.contentId)
-  return null
 }
 
 async function reviewSource(profile: Profile, type: SummarySubject, subjectId?: string): Promise<{ label: string; reviews: ReviewRecord[] }> {
@@ -391,8 +374,7 @@ app.post('/v1/reports', requireProfile, async (request: AuthenticatedRequest, re
     const categories = ['Spam', 'Harassment', 'Inappropriate content', 'False information', 'Offensive language', 'Other']
     if (!['courseReview', 'professorReview', 'courseQuestion', 'answer', 'courseGuide', 'comment'].includes(contentType) || !contentId || !categories.includes(category)) return response.status(400).json({ error: 'The report details are invalid.' })
     if (contentType === 'answer' && !questionId) return response.status(400).json({ error: 'A question context is required for an answer report.' })
-    const reportedUserId = await reportAuthorUid({ contentType, contentId, questionId, reason: category, status: 'pending' })
-    const report: ModerationReport = { contentType, contentId, ...(courseInstanceId ? { courseInstanceId } : {}), ...(questionId ? { questionId } : {}), reporterId: profile.uid, reporterRole: profile.role, reason: category, category, description, ...(reportedUserId ? { reportedUserId } : {}), status: 'pending' }
+    const report: ModerationReport = { contentType, contentId, ...(courseInstanceId ? { courseInstanceId } : {}), ...(questionId ? { questionId } : {}), reporterId: profile.uid, reporterRole: profile.role, reason: category, category, description, status: 'pending' }
     const reportRef = firestore.collection('reports').doc()
     const now = Date.now()
     await reportRef.set({ ...report, reportedBy: profile.uid, createdAt: now })
@@ -401,65 +383,6 @@ app.post('/v1/reports', requireProfile, async (request: AuthenticatedRequest, re
   } catch (error) {
     logServerError(error)
     return response.status(500).json({ error: 'Could not submit the report.' })
-  }
-})
-
-// The client never receives an anonymous author UID. A trusted admin-only
-// endpoint resolves the private mirror and stores a private account warning.
-app.post('/v1/reports/:reportId/warn', requireProfile, async (request: AuthenticatedRequest, response) => {
-  try {
-    if (request.profile?.role !== 'admin') return response.status(403).json({ error: 'Only administrators can issue account warnings.' })
-    const reportId = cleanText(request.params.reportId, 128)
-    if (!reportId) return response.status(400).json({ error: 'A report ID is required.' })
-    const reportRef = firestore.collection('reports').doc(reportId)
-    const reportSnapshot = await reportRef.get()
-    const report = reportSnapshot.data() as ModerationReport | undefined
-    if (!reportSnapshot.exists || !report || report.status !== 'pending') return response.status(404).json({ error: 'This pending report is no longer available.' })
-    if (!['courseReview', 'professorReview', 'courseQuestion', 'answer', 'courseGuide'].includes(report.contentType)) return response.status(400).json({ error: 'The report content type is invalid.' })
-    const authorUid = await reportAuthorUid(report)
-    if (!authorUid) return response.status(409).json({ error: 'The original author could not be identified. Keep or remove the content instead.' })
-    const authorRef = firestore.collection('users').doc(authorUid)
-    await firestore.runTransaction(async transaction => {
-      const author = await transaction.get(authorRef)
-      if (!author.exists) throw new Error('The reported account no longer exists.')
-      const nextWarningCount = Math.max(0, Number(author.data()?.warningCount ?? 0)) + 1
-      transaction.update(authorRef, {
-        warningCount: nextWarningCount,
-        lastModerationWarning: { reason: report.reason, contentType: report.contentType, createdAt: Date.now() },
-        updatedAt: Date.now(),
-      })
-      transaction.update(reportRef, { status: 'resolved', action: 'warned', resolvedAt: Date.now(), warnedAt: Date.now() })
-      transaction.set(firestore.collection('userNotifications').doc(), { recipientId: authorUid, reportId, title: 'Community guideline warning', body: 'A moderator reviewed content associated with your account. Please keep future contributions respectful and accurate.', read: false, createdAt: Date.now() })
-    })
-
-    return response.json({ ok: true })
-  } catch (error) {
-    logServerError(error)
-    return response.status(400).json({ error: 'Could not issue the account warning.' })
-  }
-})
-
-app.post('/v1/reports/:reportId/action', requireProfile, async (request: AuthenticatedRequest, response) => {
-  try {
-    if (request.profile?.role !== 'admin') return response.status(403).json({ error: 'Only administrators can moderate reports.' })
-    const action = request.body?.action as 'suspended' | 'other'
-    if (action !== 'suspended' && action !== 'other') return response.status(400).json({ error: 'Unsupported moderation action.' })
-    const reportRef = firestore.collection('reports').doc(cleanText(request.params.reportId, 128))
-    const snapshot = await reportRef.get()
-    const report = snapshot.data() as ModerationReport | undefined
-    if (!snapshot.exists || !report || report.status !== 'pending') return response.status(404).json({ error: 'This pending report is no longer available.' })
-    const authorUid = report.reportedUserId || await reportAuthorUid(report)
-    if (!authorUid) return response.status(409).json({ error: 'The reported account could not be identified.' })
-    const now = Date.now()
-    const batch = firestore.batch()
-    if (action === 'suspended') batch.update(firestore.collection('users').doc(authorUid), { active: false, updatedAt: now })
-    batch.update(reportRef, { status: 'resolved', action, resolvedAt: now })
-    batch.create(firestore.collection('moderationHistory').doc(), { action, targetType: 'user', targetId: authorUid, reportId: reportRef.id, summary: action === 'suspended' ? 'User account suspended from a moderation report.' : 'Other moderation action recorded.', createdAt: now, adminId: request.profile.uid })
-    await batch.commit()
-    return response.json({ ok: true })
-  } catch (error) {
-    logServerError(error)
-    return response.status(400).json({ error: 'Could not apply the moderation action.' })
   }
 })
 

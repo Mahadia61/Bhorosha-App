@@ -18,20 +18,27 @@ export default function StudentNotifications() {
 
   const load = useCallback(async () => {
     if (!profile) return
-    try { setItems((await Promise.all([notificationService.questionNotifications(profile.id), notificationService.userNotifications(profile.id)])).flat().sort((left, right) => right.createdAt - left.createdAt)); setError('') }
+    try { setItems(await notificationService.studentNotifications(profile.id)); setError('') }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load notifications.') }
   }, [profile])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (!profile || profile.role !== 'student') return
+    return notificationService.subscribeStudentNotifications(profile.id, notifications => {
+      setItems(notifications)
+      setError('')
+    }, reason => setError(reason.message))
+  }, [profile])
 
   const visible = useMemo(() => items.filter(item => {
     const value = `${item.title} ${item.body}`.toLowerCase()
     const courseUpdate = value.includes('course') || value.includes('announcement')
-    return filter === 'all' || (filter === 'unread' && !item.read) || (filter === 'courses' && courseUpdate) || (filter === 'replies' && !courseUpdate)
+    const reply = typeof item.questionId === 'string' || value.includes('response') || value.includes('reply')
+    return filter === 'all' || (filter === 'unread' && !item.read) || (filter === 'courses' && courseUpdate) || (filter === 'replies' && reply)
   }), [items, filter])
-  const count = (target: Filter) => target === 'all' ? items.length : target === 'unread' ? items.filter(item => !item.read).length : target === 'courses' ? items.filter(item => `${item.title} ${item.body}`.toLowerCase().includes('course')).length : items.filter(item => item.title.toLowerCase().includes('reply') || item.title.toLowerCase().includes('response')).length
+  const count = (target: Filter) => target === 'all' ? items.length : target === 'unread' ? items.filter(item => !item.read).length : target === 'courses' ? items.filter(item => `${item.title} ${item.body}`.toLowerCase().includes('course')).length : items.filter(item => typeof item.questionId === 'string' || item.title.toLowerCase().includes('reply') || item.title.toLowerCase().includes('response')).length
   const open = async (item: AppNotification) => {
     try {
-      if (!item.read) { if (item.reportId) await notificationService.markUserNotificationRead(item.id); else await notificationService.markQuestionNotificationRead(item.id); setItems(current => current.map(entry => entry.id === item.id ? { ...entry, read: true } : entry)) }
+      if (!item.read) { await notificationService.markQuestionNotificationRead(item.id); setItems(current => current.map(entry => entry.id === item.id ? { ...entry, read: true } : entry)) }
       if (item.courseId) router.push(`/course/${item.courseId}?section=questions` as never)
     } catch (reason) { Alert.alert('Could not update notification', reason instanceof Error ? reason.message : 'Please try again.') }
   }

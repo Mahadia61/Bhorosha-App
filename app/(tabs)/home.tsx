@@ -129,32 +129,6 @@ export default function StudentHome() {
               )}
             </Text>
           </View>
-          <View className="flex-row items-center gap-3">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open notifications"
-              onPress={() => router.push("/student-notifications" as never)}
-              className="relative h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-slate-900"
-              style={cardShadowStyle}
-            >
-              <Feather
-                name="bell"
-                size={19}
-                color={isDark ? "#E2E8F0" : "#111318"}
-              />
-              <View className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-rose-500" />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open profile"
-              onPress={() => router.push("/(tabs)/profile" as never)}
-              className="h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"
-            >
-              <Text className="text-sm font-bold text-brand">
-                {profile.name.trim().charAt(0).toUpperCase()}
-              </Text>
-            </Pressable>
-          </View>
         </View>
 
         {/* ---------- "Your voice builds a better campus" banner ---------- */}

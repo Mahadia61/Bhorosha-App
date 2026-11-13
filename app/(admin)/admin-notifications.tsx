@@ -43,8 +43,15 @@ export default function AdminNotifications() {
     }
   }, []);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!profile || profile.role !== "admin") return;
+    return notificationService.subscribeAdminNotifications(
+      notifications => {
+        setItems(notifications);
+        setError("");
+      },
+      reason => setError(reason.message),
+    );
+  }, [profile]);
   const categorized = useMemo<CategorizedNotification[]>(
     () =>
       items.map((item) => ({
@@ -92,7 +99,7 @@ export default function AdminNotifications() {
   return (
     <SafeAreaView
       className="flex-1 bg-[#F5F6F8] dark:bg-slate-950"
-      edges={["top"]}
+      edges={["left", "right", "bottom"]}
     >
       <ScrollView
         className="flex-1 px-5"
@@ -114,14 +121,6 @@ export default function AdminNotifications() {
               Stay updated with important activities.
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push("/admin-profile" as never)}
-            className="h-11 w-11 items-center justify-center rounded-full bg-[#DCEBFF]"
-          >
-            <Text className="text-lg font-bold text-[#0B6BFF]">
-              {profile.name.trim().charAt(0).toUpperCase() || "A"}
-            </Text>
-          </Pressable>
         </View>
         <View className="mb-6 flex-row gap-2">
           <FilterChip

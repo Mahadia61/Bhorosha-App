@@ -19,7 +19,7 @@ import { reviewService } from "@/features/reviews";
 import { userService } from "@/features/users";
 import { defaultRatings } from "@/lib/services/services";
 import { summarizeReviews } from "@/lib/utils/ai-summary";
-import { moderateContent, type ReviewSummary } from "@/lib/services/ai";
+import type { ReviewSummary } from "@/lib/services/ai";
 import { useApp } from "@/providers/AppProvider";
 import { ReportButton } from "@/components/moderation/ReportButton";
 import { academicLabel, questionCategories } from "@/lib/utils/academic";
@@ -74,16 +74,15 @@ export default function CourseDetail() {
     Usefulness: 4,
   });
   const [questionText, setQuestionText] = useState("");
-  const [questionTitle, setQuestionTitle] = useState("");
-  const [attachment, setAttachment] = useState("");
   const [questionCategory, setQuestionCategory] =
     useState<QuestionCategory>("Course Content");
+  const [questionAnonymous, setQuestionAnonymous] = useState(true);
   const [anonymous, setAnonymous] = useState(true);
   const [ratings, setRatings] = useState<RatingMap>(defaultRatings);
-  const [guideTitle, setGuideTitle] = useState("");
   const [guideText, setGuideText] = useState("");
   const [guideResources, setGuideResources] = useState("");
   const [guideCategory, setGuideCategory] = useState("Preparation Tips");
+  const [guideAnonymous, setGuideAnonymous] = useState(true);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"recent" | "highest">("recent");
   const [page, setPage] = useState(1);
@@ -193,11 +192,6 @@ export default function CourseDetail() {
       const taggedText = reviewTags.length
         ? `${reviewText.trim()}\n\nTags: ${reviewTags.join(", ")}`
         : reviewText.trim();
-      const moderation = await moderateContent("review", ownReview?.id ?? `course-${id}-${Date.now()}`, taggedText);
-      if (moderation.decision === "flagged") {
-        Alert.alert("Review sent for moderation", "This review needs administrator review before it can be published.");
-        return;
-      }
       const safeRatings = normalizeRatings(ratings);
       if (ownReview)
         await reviewService.updateReview(ownReview.id, {
@@ -218,7 +212,7 @@ export default function CourseDetail() {
       router.setParams({ section: "reviews" });
       Alert.alert(
         ownReview ? "Review updated" : "Review submitted",
-        "Your review is now in the course feedback queue.",
+        "Your review is now visible in course feedback.",
       );
     } catch (reason) {
       Alert.alert(
@@ -242,25 +236,17 @@ export default function CourseDetail() {
       );
     setSending(true);
     try {
-      const attachmentText = attachment.trim()
-        ? `\n\nAttachment: ${attachment.trim()}`
-        : "";
-      const questionBody = `${questionTitle.trim() ? `${questionTitle.trim()}\n\n` : ""}${questionText.trim()}${attachmentText}`;
-      const moderation = await moderateContent("question", `course-${id}-${Date.now()}`, questionBody);
-      if (moderation.decision === "flagged") {
-        Alert.alert("Question sent for moderation", "This question needs administrator review before it can be published.");
-        return;
-      }
       await questionService.addCourseQuestion({
         courseId: id,
         category: questionCategory,
-        text: questionBody,
-        anonymous: true,
+        text: questionText.trim(),
+        anonymous: questionAnonymous,
       });
-      setQuestionTitle("");
       setQuestionText("");
-      setAttachment("");
+      setQuestionAnonymous(true);
       await load();
+      setSection("questions");
+      router.setParams({ section: "questions" });
       Alert.alert("Question posted", "The course teacher can now respond.");
     } catch (reason) {
       Alert.alert(
@@ -272,32 +258,32 @@ export default function CourseDetail() {
     }
   };
   const submitGuide = async () => {
-    if (!studentCanContribute || !guideTitle.trim() || !guideText.trim())
+    if (!studentCanContribute || !guideText.trim())
       return Alert.alert(
         "Complete your advice",
-        "Add a title and useful advice for future students.",
+        "Add useful advice for future students.",
       );
     setSending(true);
     try {
-      const adviceText = `${guideTitle.trim()}\n\n${guideText.trim()}${guideResources.trim() ? `\n\nResources: ${guideResources.trim()}` : ""}`;
-      const moderation = await moderateContent("advice", `course-${id}-${Date.now()}`, adviceText);
-      if (moderation.decision === "flagged") {
-        Alert.alert("Advice sent for moderation", "This advice needs administrator review before it can be published.");
-        return;
-      }
-      await courseService.addCourseGuide({
+      const result = await courseService.addCourseGuide({
         courseId: id,
-        title: guideTitle.trim(),
+        category: guideCategory,
+        title: guideCategory,
         text: guideText.trim(),
         resources: guideResources.trim(),
+        anonymous: guideAnonymous,
       });
-      setGuideTitle("");
       setGuideText("");
       setGuideResources("");
+      setGuideAnonymous(true);
       await load();
+      setSection("advice");
+      router.setParams({ section: "advice" });
       Alert.alert(
-        "Advice submitted",
-        "Your advice will appear after approval.",
+        "Advice shared",
+        result.categorySaved
+          ? "Your advice is now visible to other students."
+          : "Your advice was shared, but its topic could not be saved. Deploy the updated Firestore rules to enable advice topics.",
       );
     } catch (reason) {
       Alert.alert(
@@ -324,19 +310,19 @@ export default function CourseDetail() {
 
   if (loadError)
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-[#F5F6F8] px-6 dark:bg-slate-950">
+      <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 items-center justify-center bg-[#F5F6F8] px-6 dark:bg-slate-950">
         <Text className="text-center text-muted">{loadError}</Text>
       </SafeAreaView>
     );
   if (!course)
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-[#F5F6F8] dark:bg-slate-950">
+      <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 items-center justify-center bg-[#F5F6F8] dark:bg-slate-950">
         <Text className="text-muted">Loading course…</Text>
       </SafeAreaView>
     );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}
       >
@@ -363,31 +349,7 @@ export default function CourseDetail() {
                   : "Share Your Advice"}
             </Text>
           ) : null}
-          <View className="flex-row items-center gap-3">
-            <Pressable
-              onPress={() => router.push("/student-notifications" as never)}
-              className="relative"
-            >
-              <Feather
-                name="bell"
-                size={19}
-                color={isDark ? "#E2E8F0" : "#111318"}
-              />
-              <View className="absolute -right-2 -top-2 h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1">
-                <Text className="text-[9px] font-bold text-white">3</Text>
-              </View>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open student profile"
-              onPress={() => router.push("/(tabs)/profile" as never)}
-              className="h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"
-            >
-              <Text className="text-xs font-bold text-brand">
-                {profile?.name.trim().charAt(0).toUpperCase() || "S"}
-              </Text>
-            </Pressable>
-          </View>
+          <View className="w-8" />
         </View>
         {isFormView ? null : <CourseHeader course={course} />}
         {isFormView ? null : (
@@ -433,13 +395,11 @@ export default function CourseDetail() {
           <QuestionForm
             course={course}
             category={questionCategory}
-            title={questionTitle}
             text={questionText}
-            attachment={attachment}
+            anonymous={questionAnonymous}
             onCategory={setQuestionCategory}
-            onTitle={setQuestionTitle}
             onText={setQuestionText}
-            onAttachment={setAttachment}
+            onAnonymous={setQuestionAnonymous}
             onSubmit={() => {
               void submitQuestion();
             }}
@@ -449,13 +409,13 @@ export default function CourseDetail() {
           <AdviceForm
             course={course}
             category={guideCategory}
-            title={guideTitle}
             text={guideText}
             resources={guideResources}
+            anonymous={guideAnonymous}
             onCategory={setGuideCategory}
-            onTitle={setGuideTitle}
             onText={setGuideText}
             onResources={setGuideResources}
+            onAnonymous={setGuideAnonymous}
             onSubmit={() => {
               void submitGuide();
             }}
@@ -491,9 +451,6 @@ export default function CourseDetail() {
                     value === "recent" ? "highest" : "recent",
                   )
                 }
-                onWrite={() =>
-                  router.push(`/course/${id}?section=review-form` as never)
-                }
                 onMore={() => setPage((value) => value + 1)}
                 profile={profile}
               />
@@ -502,29 +459,12 @@ export default function CourseDetail() {
               <Questions
                 questions={questions}
                 profile={profile}
-                category={questionCategory}
-                text={questionText}
-                onCategory={setQuestionCategory}
-                onText={setQuestionText}
-                onSubmit={() => {
-                  void submitQuestion();
-                }}
                 onPosted={load}
               />
             ) : null}
             {section === "advice" ? (
               <Advice
                 guides={guides}
-                title={guideTitle}
-                text={guideText}
-                resources={guideResources}
-                onTitle={setGuideTitle}
-                onText={setGuideText}
-                onResources={setGuideResources}
-                onSubmit={() => {
-                  void submitGuide();
-                }}
-                sending={sending}
               />
             ) : null}
           </>
@@ -533,21 +473,30 @@ export default function CourseDetail() {
       {isFormView ? null : (
         <View className="flex-row gap-3 border-t border-[#E7EAF0] bg-white px-4 pb-2 pt-3 dark:border-slate-800 dark:bg-slate-900">
           <Button
-            className="flex-1"
+            className="flex-1 px-1"
             onPress={() =>
               router.push(`/course/${id}?section=review-form` as never)
             }
           >
-            Write a Review
+            Write Review
           </Button>
           <Button
-            className="flex-1"
+            className="flex-1 px-1"
             variant="outline"
             onPress={() =>
               router.push(`/course/${id}?section=question-form` as never)
             }
           >
-            Ask a Question
+            Ask Q&A
+          </Button>
+          <Button
+            className="flex-1 px-1"
+            variant="outline"
+            onPress={() =>
+              router.push(`/course/${id}?section=advice-form` as never)
+            }
+          >
+            Senior Advice
           </Button>
         </View>
       )}
@@ -749,7 +698,6 @@ function Reviews({
   sort,
   onSearch,
   onSort,
-  onWrite,
   onMore,
   profile,
 }: {
@@ -759,7 +707,6 @@ function Reviews({
   sort: "recent" | "highest";
   onSearch: (value: string) => void;
   onSort: () => void;
-  onWrite: () => void;
   onMore: () => void;
   profile: ReturnType<typeof useApp>["profile"];
 }) {
@@ -775,19 +722,16 @@ function Reviews({
           className="flex-1 px-3 py-2.5 text-sm text-[#172038] dark:text-white"
         />
       </View>
-      <View className="mt-3 flex-row gap-2">
+      <View className="mt-3">
         <Pressable
           onPress={onSort}
-          className="flex-1 flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900"
+          className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900"
         >
           <Text className="text-xs text-muted">
             Sort: {sort === "recent" ? "Most recent" : "Highest rated"}
           </Text>
           <Feather name="chevron-down" size={15} color="#64718B" />
         </Pressable>
-        <Button onPress={onWrite} className="flex-1">
-          Write a Review
-        </Button>
       </View>
       {reviews.length ? (
         reviews.map((review) => (
@@ -973,25 +917,21 @@ function ReviewForm({
 function QuestionForm({
   course,
   category,
-  title,
   text,
-  attachment,
+  anonymous,
   onCategory,
-  onTitle,
   onText,
-  onAttachment,
+  onAnonymous,
   onSubmit,
   sending,
 }: {
   course: Course;
   category: QuestionCategory;
-  title: string;
   text: string;
-  attachment: string;
+  anonymous: boolean;
   onCategory: (value: QuestionCategory) => void;
-  onTitle: (value: string) => void;
   onText: (value: string) => void;
-  onAttachment: (value: string) => void;
+  onAnonymous: (value: boolean) => void;
   onSubmit: () => void;
   sending: boolean;
 }) {
@@ -1001,6 +941,7 @@ function QuestionForm({
   return (
     <View>
       <MiniCourseCard course={course} />
+      <IdentityChoice anonymous={anonymous} onChange={onAnonymous} label="Question Identity" />
       <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
         Question Category
       </Text>
@@ -1019,20 +960,6 @@ function QuestionForm({
           </Pressable>
         ))}
       </View>
-      <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
-        Question Title
-      </Text>
-      <TextInput
-        value={title}
-        onChangeText={onTitle}
-        maxLength={100}
-        placeholder="Enter a short, specific title for your question..."
-        placeholderTextColor="#64718B"
-        className="mt-2 rounded-xl border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-      />
-      <Text className="text-right text-[10px] text-muted">
-        {title.length}/100
-      </Text>
       <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
         Your Question
       </Text>
@@ -1063,19 +990,6 @@ function QuestionForm({
           </View>
         </View>
       </Card>
-      <Text className="mt-4 text-xs font-extrabold text-[#172038] dark:text-white">
-        Attachment <Text className="font-normal text-muted">(Optional)</Text>
-      </Text>
-      <Pressable
-        onPress={() => onAttachment(attachment ? "" : "Attachment selected")}
-        className="mt-2 flex-row items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-4 dark:border-slate-700 dark:bg-slate-900"
-      >
-        <Feather name="paperclip" size={16} color="#1670F8" />
-        <Text className="text-xs text-muted">
-          {attachment || "Add file (PDF, image, or code file)"}
-        </Text>
-      </Pressable>
-      <Text className="mt-1 text-[10px] text-muted">Max file size: 10 MB</Text>
       <Button className="mt-5" loading={sending} onPress={onSubmit}>
         Post Question
       </Button>
@@ -1083,28 +997,60 @@ function QuestionForm({
   );
 }
 
+function IdentityChoice({
+  anonymous,
+  onChange,
+  label,
+}: {
+  anonymous: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+}) {
+  return (
+    <>
+      <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
+        {label}
+      </Text>
+      <View className="mt-2 flex-row gap-2">
+        <ChoiceCard
+          active={anonymous}
+          title="Anonymous"
+          body="Your name will not be shown."
+          onPress={() => onChange(true)}
+        />
+        <ChoiceCard
+          active={!anonymous}
+          title="Named"
+          body="Your name will be shown."
+          onPress={() => onChange(false)}
+        />
+      </View>
+    </>
+  );
+}
+
 function AdviceForm({
   course,
   category,
-  title,
   text,
   resources,
+  anonymous,
   onCategory,
-  onTitle,
   onText,
   onResources,
+  onAnonymous,
   onSubmit,
   sending,
 }: {
   course: Course;
   category: string;
-  title: string;
   text: string;
   resources: string;
+  anonymous: boolean;
   onCategory: (value: string) => void;
-  onTitle: (value: string) => void;
   onText: (value: string) => void;
   onResources: (value: string) => void;
+  onAnonymous: (value: boolean) => void;
   onSubmit: () => void;
   sending: boolean;
 }) {
@@ -1119,6 +1065,7 @@ function AdviceForm({
   return (
     <View>
       <MiniCourseCard course={course} />
+      <IdentityChoice anonymous={anonymous} onChange={onAnonymous} label="Advice Identity" />
       <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
         Advice Category
       </Text>
@@ -1137,20 +1084,6 @@ function AdviceForm({
           </Pressable>
         ))}
       </View>
-      <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
-        Title
-      </Text>
-      <TextInput
-        value={title}
-        onChangeText={onTitle}
-        maxLength={100}
-        placeholder="Give a short title for your advice..."
-        placeholderTextColor="#64718B"
-        className="mt-2 rounded-xl border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-      />
-      <Text className="text-right text-[10px] text-muted">
-        {title.length}/100
-      </Text>
       <Text className="mt-5 text-xs font-extrabold text-[#172038] dark:text-white">
         Your Advice
       </Text>
@@ -1292,41 +1225,14 @@ function RatingRow({
 function Questions({
   questions,
   profile,
-  category,
-  text,
-  onCategory,
-  onText,
-  onSubmit,
   onPosted,
 }: {
   questions: CourseQuestion[];
   profile: ReturnType<typeof useApp>["profile"];
-  category: QuestionCategory;
-  text: string;
-  onCategory: (value: QuestionCategory) => void;
-  onText: (value: string) => void;
-  onSubmit: () => void;
   onPosted: () => Promise<void>;
 }) {
   return (
     <View>
-      <View className="mt-5 flex-row flex-wrap gap-2">
-        {questionCategories
-          .filter((item) => item !== "Registration")
-          .map((item) => (
-            <Pressable
-              key={item}
-              onPress={() => onCategory(item)}
-              className={`rounded-xl border px-3 py-2 ${category === item ? "border-brand bg-blue-50 dark:bg-blue-950" : "border-slate-200 dark:border-slate-700"}`}
-            >
-              <Text
-                className={`text-xs font-semibold ${category === item ? "text-brand" : "text-muted"}`}
-              >
-                {item}
-              </Text>
-            </Pressable>
-          ))}
-      </View>
       <View className="mt-3 flex-row items-center rounded-xl border border-[#E7EAF0] bg-white px-3 dark:border-slate-800 dark:bg-slate-900">
         <Feather name="search" size={16} color="#64718B" />
         <TextInput
@@ -1350,46 +1256,14 @@ function Questions({
           body="Ask the first question about this course."
         />
       )}
-      <Card className="mt-3">
-        <Text className="text-sm font-bold text-[#172038] dark:text-white">
-          Ask a Question
-        </Text>
-        <TextInput
-          multiline
-          value={text}
-          onChangeText={onText}
-          placeholder="Ask in বাংলা or English — your name stays private"
-          placeholderTextColor="#94A3B8"
-          className="mt-3 min-h-20 rounded-xl border border-slate-200 p-3 text-base text-ink dark:border-slate-700 dark:text-white"
-        />
-        <Button className="mt-3" onPress={onSubmit}>
-          Post anonymous question
-        </Button>
-      </Card>
     </View>
   );
 }
 
 function Advice({
   guides,
-  title,
-  text,
-  resources,
-  onTitle,
-  onText,
-  onResources,
-  onSubmit,
-  sending,
 }: {
   guides: CourseGuide[];
-  title: string;
-  text: string;
-  resources: string;
-  onTitle: (value: string) => void;
-  onText: (value: string) => void;
-  onResources: (value: string) => void;
-  onSubmit: () => void;
-  sending: boolean;
 }) {
   return (
     <View>
@@ -1435,7 +1309,10 @@ function Advice({
                 {guide.title}
               </Text>
               <Text className="text-xs text-muted">
-                Shared by a senior student
+                {guide.category ? `${guide.category} · ` : ""}
+                {guide.anonymous === false
+                  ? guide.displayName ?? "Named student"
+                  : "Shared by a senior student"}
               </Text>
             </View>
             <ReportButton contentType="courseGuide" contentId={guide.id} />
@@ -1450,36 +1327,6 @@ function Advice({
           ) : null}
         </Card>
       ))}
-      <Card className="mt-4">
-        <Text className="text-sm font-bold text-[#172038] dark:text-white">
-          Share Your Advice
-        </Text>
-        <TextInput
-          value={title}
-          onChangeText={onTitle}
-          placeholder="Advice title, e.g. How to prepare"
-          placeholderTextColor="#94A3B8"
-          className="mt-3 rounded-xl border border-slate-200 p-3 text-base dark:border-slate-700 dark:text-white"
-        />
-        <TextInput
-          multiline
-          value={text}
-          onChangeText={onText}
-          placeholder="Share preparation tips, resources, or study strategy"
-          placeholderTextColor="#94A3B8"
-          className="mt-3 min-h-24 rounded-xl border border-slate-200 p-3 text-base dark:border-slate-700 dark:text-white"
-        />
-        <TextInput
-          value={resources}
-          onChangeText={onResources}
-          placeholder="Recommended books or resources (optional)"
-          placeholderTextColor="#94A3B8"
-          className="mt-3 rounded-xl border border-slate-200 p-3 text-base dark:border-slate-700 dark:text-white"
-        />
-        <Button className="mt-3" loading={sending} onPress={onSubmit}>
-          Share Your Advice
-        </Button>
-      </Card>
     </View>
   );
 }

@@ -32,7 +32,6 @@ export type Profile = {
   studentId?: string
   currentLevel?: AcademicLevel
   currentTerm?: AcademicTerm
-  warningCount?: number
   createdAt?: number
 }
 
@@ -103,9 +102,9 @@ export type ProfessorReview = { id: string; professorId: string; text: string; r
 
 export type QuestionAnswer = { id: string; questionId?: string; courseId?: string; courseInstanceId?: string; authorName: string; authorRole: 'student' | 'teacher'; text: string; createdAt: number }
 
-export type CourseQuestion = { id: string; courseId: string; courseInstanceId?: string; category: QuestionCategory; text: string; anonymous: boolean; createdAt: number; answers?: QuestionAnswer[] }
+export type CourseQuestion = { id: string; courseId: string; courseInstanceId?: string; category: QuestionCategory; text: string; anonymous: boolean; displayName?: string | null; createdAt: number; answers?: QuestionAnswer[] }
 
-export type CourseGuide = { id: string; courseId: string; courseInstanceId?: string; title: string; text: string; resources?: string; createdAt: number }
+export type CourseGuide = { id: string; courseId: string; courseInstanceId?: string; category?: string; title: string; text: string; resources?: string; anonymous?: boolean; displayName?: string | null; createdAt: number }
 export type ContentType = 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer' | 'courseGuide' | 'comment'
 export type ReportReason = 'Spam' | 'Harassment' | 'Inappropriate content' | 'False information' | 'Offensive language' | 'Other'
 export type ReportStatus = 'pending' | 'reviewed' | 'resolved'

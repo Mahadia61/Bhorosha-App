@@ -26,7 +26,6 @@ import type {
   ProfessorReview,
   Profile,
   Report,
-  ReportAction,
   Review,
   TeacherProfile,
 } from "@/lib/types/types";
@@ -597,7 +596,7 @@ export default function AdminWorkspace({
     );
   if (loading)
     return (
-      <SafeAreaView className="flex-1 bg-slate-50 dark:bg-slate-950">
+      <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-slate-50 dark:bg-slate-950">
         <View className="px-5 pt-5">
           <Title
             title="Loading workspace"
@@ -609,7 +608,7 @@ export default function AdminWorkspace({
     );
   if (loadError)
     return (
-      <SafeAreaView className="flex-1 bg-slate-50 dark:bg-slate-950">
+      <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-slate-50 dark:bg-slate-950">
         <View className="px-5 pt-5">
           <Title
             title="Workspace unavailable"
@@ -688,10 +687,7 @@ function AdminOverviewReferencePage({
   });
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-[#F6F7F9] dark:bg-slate-950"
-      edges={["top"]}
-    >
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F6F7F9] dark:bg-slate-950">
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ padding: 20, paddingBottom: 112 }}
@@ -705,29 +701,6 @@ function AdminOverviewReferencePage({
             <Text className="mt-1 text-sm text-[#63718B]">
               Empowering better learning together.
             </Text>
-          </View>
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={() => router.push("/admin-notifications" as never)}
-              className="relative h-12 w-12 items-center justify-center rounded-full bg-white"
-            >
-              <Feather name="bell" size={22} color="#52627A" />
-              {reports.length ? (
-                <View className="absolute -right-1 -top-1 min-w-5 items-center rounded-full bg-[#FF3E4D] px-1 py-0.5">
-                  <Text className="text-[10px] font-bold text-white">
-                    {reports.length}
-                  </Text>
-                </View>
-              ) : null}
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/admin-profile" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full bg-[#DCEBFF]"
-            >
-              <Text className="text-xl font-extrabold text-[#0B6BFF]">
-                {profile.name.trim().charAt(0).toUpperCase() || "A"}
-              </Text>
-            </Pressable>
           </View>
         </View>
 
@@ -901,7 +874,7 @@ function AdminOverviewReferencePage({
                         : "#0B6BFF"
                   }
                   title={course.title}
-                  detail={`${course.code} Â· ${course.department}`}
+                  detail={`${course.code} | ${course.department}`}
                   status="Active"
                   onPress={() =>
                     router.push({
@@ -1237,20 +1210,20 @@ function ReferenceAdminNav({
     { id: "analytics", label: "Analytics", icon: "bar-chart-2" },
   ];
   return (
-    <View className="h-[76px] flex-row items-start border-t border-slate-200 bg-white px-1 pb-4 pt-3 dark:border-slate-800 dark:bg-slate-900">
+    <View className="flex-row justify-around border-t border-slate-200 bg-white px-2 py-3 dark:border-slate-800 dark:bg-slate-900">
       {tabs.map((tab) => (
         <Pressable
           key={tab.id}
           onPress={() => onSelect(tab.id)}
-          className="flex-1 items-center"
+          className="items-center gap-1 px-2"
         >
           <Feather
             name={tab.icon}
-            size={22}
-            color={active === tab.id ? "#0B6BFF" : "#6C7890"}
+            size={21}
+            color={active === tab.id ? "#1670F8" : "#64748B"}
           />
           <Text
-            className={`mt-1 text-[10px] font-semibold ${active === tab.id ? "text-[#0B6BFF]" : "text-slate-500 dark:text-slate-400"}`}
+            className={`text-[10px] font-semibold ${active === tab.id ? "text-[#1670F8]" : "text-slate-500"}`}
           >
             {tab.label}
           </Text>
@@ -1337,7 +1310,7 @@ function AdminCoursesPage({
     ["bg-rose-100", "#BE123C"],
   ];
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 96 }}>
         <View className="flex-row items-start justify-between gap-4">
           <View className="flex-1">
@@ -1345,22 +1318,6 @@ function AdminCoursesPage({
             <Text className="mt-1 text-sm text-slate-500">
               Manage all courses and their teaching assignments.
             </Text>
-          </View>
-          <View className="flex-shrink-0 flex-row gap-3">
-            <Pressable
-              onPress={() => router.push("/admin-notifications" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full border border-slate-100 bg-white"
-            >
-              <Feather name="bell" size={21} color="#111318" />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/admin-profile" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full bg-blue-100"
-            >
-              <Text className="text-xl font-bold text-brand">
-                {profile.name.trim().charAt(0).toUpperCase() || "B"}
-              </Text>
-            </Pressable>
           </View>
         </View>
         <View className="mt-7 flex-row gap-3">
@@ -1456,8 +1413,8 @@ function AdminCoursesPage({
                     {course.title}
                   </Text>
                   <Text className="mt-1 text-xs text-slate-500">
-                    Level {course.level ?? "â€”"} Â· Term {course.term ?? "â€”"} Â·{" "}
-                    {course.courseType ?? "Type"} Â· {course.credits} credits
+                    Level {course.level ?? "-"} | Term {course.term ?? "-"} |{" "}
+                    {course.courseType ?? "Type"} | {course.credits} credits
                   </Text>
                   {course.tags.length ? (
                     <View className="mt-3 self-start rounded-full bg-blue-50 px-3 py-1">
@@ -1764,7 +1721,7 @@ function AdminMembersPage({
     ["bg-emerald-100", "#059669"],
   ];
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 96 }}>
         <View className="flex-row items-start justify-between">
           <View>
@@ -1774,22 +1731,6 @@ function AdminMembersPage({
             <Text className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Manage students and teachers of CUET
             </Text>
-          </View>
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={() => router.push("/admin-notifications" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full border border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900"
-            >
-              <Feather name="bell" size={21} color="#1670F8" />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/admin-profile" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full bg-blue-100"
-            >
-              <Text className="text-xl font-bold text-brand">
-                {profile.name.trim().charAt(0).toUpperCase() || "B"}
-              </Text>
-            </Pressable>
           </View>
         </View>
         <View className="mt-7 flex-row gap-3">
@@ -2033,7 +1974,7 @@ function AdminModerationPage({
     (report) => report.status !== "pending",
   ).length;
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8]">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8]">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 96 }}>
         <View className="flex-row items-start justify-between">
           <View>
@@ -2043,22 +1984,6 @@ function AdminModerationPage({
             <Text className="mt-1 text-sm text-slate-500">
               Review reports from students and teachers.
             </Text>
-          </View>
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={() => router.push("/admin-notifications" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full border border-slate-100 bg-white"
-            >
-              <Feather name="bell" size={21} color="#1670F8" />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/admin-profile" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full bg-blue-100"
-            >
-              <Text className="text-xl font-bold text-brand">
-                {profile.name.trim().charAt(0).toUpperCase() || "B"}
-              </Text>
-            </Pressable>
           </View>
         </View>
         <View className="mt-6 flex-row rounded-2xl bg-slate-100 p-1">
@@ -2419,7 +2344,7 @@ function AdminAnalyticsPage({
                 >
                   <View className="flex-1">
                     <Text className="font-semibold text-slate-950">
-                      {item.course.code} Â· {item.course.title}
+                      {item.course.code} | {item.course.title}
                     </Text>
                     <Text className="mt-1 text-xs text-slate-500">
                       {item.count} review{item.count === 1 ? "" : "s"}
@@ -2445,7 +2370,7 @@ function AdminAnalyticsPage({
                 className="mb-3 flex-row items-center justify-between"
               >
                 <Text className="flex-1 font-semibold text-slate-950">
-                  {item.course.code} Â· {item.course.title}
+                  {item.course.code} | {item.course.title}
                 </Text>
                 <Text className="font-bold text-rose-600">
                   {item.score.toFixed(1)} / 5
@@ -2536,7 +2461,7 @@ function AdminAnalyticsPage({
               "#F5A623",
             ],
             [
-              average ? `${average.toFixed(1)} / 5` : "â€”",
+              average ? `${average.toFixed(1)} / 5` : "-",
               "Average rating",
               "bar-chart-2",
               "bg-blue-100",
@@ -2609,7 +2534,7 @@ function AdminAnalyticsPage({
       </>
     );
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8]">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8]">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 96 }}>
         <View className="flex-row items-start justify-between">
           <View>
@@ -2617,22 +2542,6 @@ function AdminAnalyticsPage({
             <Text className="mt-1 max-w-[260px] text-sm text-slate-500">
               {subtitle}
             </Text>
-          </View>
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={() => router.push("/admin-notifications" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full border border-slate-100 bg-white"
-            >
-              <Feather name="bell" size={21} color="#1670F8" />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/admin-profile" as never)}
-              className="h-12 w-12 items-center justify-center rounded-full bg-blue-100"
-            >
-              <Text className="text-xl font-bold text-brand">
-                {profile.name.trim().charAt(0).toUpperCase() || "B"}
-              </Text>
-            </Pressable>
           </View>
         </View>
         <View className="mt-6 flex-row flex-wrap gap-2">
@@ -2831,7 +2740,7 @@ function AccountStatus({
         <View key={label} className="flex-row items-center justify-between">
           <Text className={`text-sm font-semibold ${tone}`}>{label}</Text>
           <Text className="text-sm font-bold text-slate-700">
-            {value} Â· {total ? Math.round((value / total) * 100) : 0}%
+            {value} | {total ? Math.round((value / total) * 100) : 0}%
           </Text>
         </View>
       ))}
@@ -3533,7 +3442,7 @@ function TeacherMemberCard({
           className={`mt-2 text-xs font-semibold ${linkedAccount ? "text-emerald-600" : "text-amber-600"}`}
         >
           {linkedAccount
-            ? `Linked Â· ${linkedAccount.email}`
+            ? `Linked | ${linkedAccount.email}`
             : "Not linked to a teacher account"}
         </Text>
       </View>
@@ -3847,13 +3756,9 @@ function MemberProfileModal({
             {member.currentLevel || member.currentTerm ? (
               <ProfileDetail
                 label="Academic level"
-                value={`Level ${member.currentLevel ?? "â€”"} Â· Term ${member.currentTerm ?? "â€”"}`}
+                value={`Level ${member.currentLevel ?? "-"} | Term ${member.currentTerm ?? "-"}`}
               />
             ) : null}
-            <ProfileDetail
-              label="Warnings"
-              value={String(member.warningCount ?? 0)}
-            />
             <ProfileDetail
               label="Suspensions"
               value={member.active === false ? "1 current suspension" : "0"}
@@ -3866,7 +3771,7 @@ function MemberProfileModal({
                 {assignedCourses.length ? (
                   assignedCourses.map((course) => (
                     <Text key={course.id} className="mt-2 text-sm text-muted">
-                      {course.code} Â· {course.title}
+                      {course.code} | {course.title}
                     </Text>
                   ))
                 ) : (
@@ -3952,7 +3857,7 @@ function CourseDetailsModal({
             <ProfileDetail label="Credits" value={String(course.credits)} />
             <ProfileDetail
               label="Level and term"
-              value={`Level ${course.level ?? "â€”"} Â· Term ${course.term ?? "â€”"}`}
+              value={`Level ${course.level ?? "-"} | Term ${course.term ?? "-"}`}
             />
             <ProfileDetail
               label="Teachers"
@@ -4046,7 +3951,7 @@ function QuestionQueue({ questions }: { questions: CourseQuestion[] }) {
             {question.text}
           </Text>
           <Text className="mt-2 text-xs text-muted">
-            Unanswered Â· {formatRelativeTime(question.createdAt)}
+            Unanswered | {formatRelativeTime(question.createdAt)}
           </Text>
         </Card>
       ))}
@@ -4084,7 +3989,7 @@ function TeacherResponses({
       {responses.map((response) => (
         <Card key={response.id} className="mt-3">
           <Text className="text-xs font-bold text-brand">
-            {response.target} Â· {response.teacherName}
+            {response.target} | {response.teacherName}
           </Text>
           <Text className="mt-2 text-sm text-ink dark:text-white">
             {response.text}
@@ -4118,7 +4023,7 @@ function AppealList({
           </Text>
           <Text className="mt-2 text-sm text-muted">{appeal.reason}</Text>
           <Text className="mt-2 text-xs text-muted">
-            {appeal.status.toUpperCase()} Â·{" "}
+            {appeal.status.toUpperCase()} |{" "}
             {formatRelativeTime(appeal.createdAt)}
           </Text>
           {appeal.status === "pending" ? (
@@ -4334,9 +4239,9 @@ function ReportCard({
           : questionWithAnswer?.answers?.find(
               (answer) => answer.id === report.contentId,
             )?.text;
-  const resolve = async (action: ReportAction, remove = false) => {
+  const resolve = async (action: "kept" | "removed") => {
     try {
-      if (remove) {
+      if (action === "removed") {
         if (report.contentType === "courseReview")
           await services.deleteReview(report.contentId);
         else if (report.contentType === "professorReview")
@@ -4351,10 +4256,7 @@ function ReportCard({
             report.contentId,
           );
       }
-      if (action === "warned") await services.warnReportedUser(report.id);
-      else if (action === "suspended")
-        await services.suspendReportedUser(report.id);
-      else await services.updateReportStatus(report.id, "resolved", action);
+      await services.updateReportStatus(report.id, "resolved", action);
       await onResolved();
     } catch (reason) {
       Alert.alert(
@@ -4366,7 +4268,7 @@ function ReportCard({
   return (
     <Card className="mt-3">
       <Text className="text-xs font-bold text-brand">
-        REPORT #{report.id.slice(0, 8)} Â· {report.contentType.toUpperCase()} Â·{" "}
+        REPORT #{report.id.slice(0, 8)} | {report.contentType.toUpperCase()} |{" "}
         {report.status.toUpperCase()}
       </Text>
       <Text className="mt-2 text-xs text-rose-600">
@@ -4392,56 +4294,6 @@ function ReportCard({
         <Text
           onPress={() =>
             Alert.alert(
-              "Warn account?",
-              "The reported user will receive a notification.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Warn",
-                  style: "destructive",
-                  onPress: () => {
-                    void resolve("warned");
-                  },
-                },
-              ],
-            )
-          }
-          className="text-sm font-semibold text-orange-600"
-        >
-          Warn user
-        </Text>
-        <Text
-          onPress={() =>
-            Alert.alert(
-              "Suspend account?",
-              "The reported user will lose access until reactivated by an administrator.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Suspend",
-                  style: "destructive",
-                  onPress: () => {
-                    void resolve("suspended");
-                  },
-                },
-              ],
-            )
-          }
-          className="text-sm font-semibold text-amber-600"
-        >
-          Suspend user
-        </Text>
-        <Text
-          onPress={() => {
-            void resolve("other");
-          }}
-          className="text-sm font-semibold text-slate-600"
-        >
-          Other action
-        </Text>
-        <Text
-          onPress={() =>
-            Alert.alert(
               "Remove content?",
               "This removes the public record and preserves moderation history.",
               [
@@ -4450,7 +4302,7 @@ function ReportCard({
                   text: "Remove",
                   style: "destructive",
                   onPress: () => {
-                    void resolve("removed", true);
+                    void resolve("removed");
                   },
                 },
               ],

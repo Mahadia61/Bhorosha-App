@@ -217,7 +217,7 @@ export default function AdminCourseForm() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
+    <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8] dark:bg-slate-950">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
         <View className="flex-row items-center">
           <Pressable

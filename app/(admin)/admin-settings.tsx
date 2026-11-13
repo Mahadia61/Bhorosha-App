@@ -58,7 +58,7 @@ export default function AdminSettings() {
   return (
     <SafeAreaView
       className="flex-1 bg-[#F5F6F8] dark:bg-slate-950"
-      edges={["top"]}
+      edges={["left", "right", "bottom"]}
     >
       <ScrollView
         className="flex-1 px-5"

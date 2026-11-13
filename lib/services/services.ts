@@ -79,7 +79,6 @@ const profileFrom = (id: string, data: Record<string, unknown>): Profile => ({
   studentId: data.studentId ? String(data.studentId) : undefined,
   currentLevel: ['1', '2', '3', '4'].includes(String(data.currentLevel)) ? String(data.currentLevel) as AcademicLevel : undefined,
   currentTerm: ['1', '2'].includes(String(data.currentTerm)) ? String(data.currentTerm) as AcademicTerm : undefined,
-  warningCount: Number(data.warningCount ?? 0),
   createdAt: typeof data.createdAt === 'number' ? data.createdAt : undefined,
 })
 
@@ -138,7 +137,7 @@ const answerFrom = (id: string, data: Record<string, unknown>): QuestionAnswer =
 })
 
 const questionFrom = (id: string, data: Record<string, unknown>): CourseQuestion => ({
-  id, courseId: String(data.courseId ?? ''), ...(typeof data.courseInstanceId === 'string' ? { courseInstanceId: data.courseInstanceId } : {}), category: ['Course Content', 'Course Related', 'Exam', 'Assignment', 'Project', 'Registration', 'Academic', 'Advising', 'Other'].includes(String(data.category)) ? String(data.category) as QuestionCategory : 'Other', text: String(data.text ?? ''), anonymous: data.anonymous !== false, createdAt: Number(data.createdAt ?? 0), answers: [],
+  id, courseId: String(data.courseId ?? ''), ...(typeof data.courseInstanceId === 'string' ? { courseInstanceId: data.courseInstanceId } : {}), category: ['Course Content', 'Course Related', 'Exam', 'Assignment', 'Project', 'Registration', 'Academic', 'Advising', 'Other'].includes(String(data.category)) ? String(data.category) as QuestionCategory : 'Other', text: String(data.text ?? ''), anonymous: data.anonymous !== false, displayName: typeof data.displayName === 'string' ? data.displayName : null, createdAt: Number(data.createdAt ?? 0), answers: [],
 })
 
 const activityFrom = (id: string, data: Record<string, unknown>): ActivityItem => ({
@@ -471,12 +470,10 @@ export const services = {
     } : course ? await this.legacyCourseInstance(course) : null
     const instanceId = input.courseInstanceId ?? instance?.id
     const courseDepartment = (instance?.department ?? course?.department ?? '').trim().toUpperCase()
-    const courseBatch = instance?.batch?.trim() || course?.batch?.trim()
     const coursePosition = academicPosition(instance?.level ?? course?.level, instance?.term ?? course?.term)
     const studentPosition = academicPosition(profile.currentLevel, profile.currentTerm)
-    if (!course || !instanceId) throw new Error('This course is not available for review yet.')
+    if (!course) throw new Error('This course is not available for review yet.')
     if (courseDepartment && courseDepartment !== profile.department.trim().toUpperCase()) throw new Error('You can review courses only from your department.')
-    if (courseBatch && courseBatch !== profile.batch?.trim()) throw new Error('You can review courses only from your batch.')
     if (coursePosition !== null && studentPosition !== null && coursePosition > studentPosition) throw new Error('You can review courses only after reaching their academic level and term.')
     const existingReview = await getDoc(doc(firestore, 'users', profile.id, 'courseReviewIndex', input.courseId))
     if (existingReview.exists()) throw new Error('You have already reviewed this course.')
@@ -568,7 +565,18 @@ export const services = {
     const reviewRef = doc(collection(firestore, 'professorReviews'))
     const createdAt = Date.now()
     const rating = Math.max(1, Math.min(5, Math.round(input.rating)))
-    const review = { professorId: input.professorId, text, rating, anonymous: input.anonymous, displayName: input.anonymous ? null : profile.name, createdAt }
+    const aspects = input.aspects ? Object.fromEntries(Object.entries(input.aspects).filter(([, value]) => Number.isInteger(value) && value >= 1 && value <= 5)) : undefined
+    const tags = input.tags?.map(tag => tag.trim()).filter(Boolean)
+    const review = {
+      professorId: input.professorId,
+      text,
+      rating,
+      ...(aspects && Object.keys(aspects).length ? { aspects } : {}),
+      ...(tags?.length ? { tags } : {}),
+      anonymous: input.anonymous,
+      displayName: input.anonymous ? null : profile.name,
+      createdAt,
+    }
     const batch = writeBatch(firestore)
     batch.set(reviewRef, review)
     batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'professorReviews', reviewRef.id), { id: reviewRef.id, ...review })
@@ -617,6 +625,8 @@ export const services = {
   async addCourseQuestion(input: Omit<CourseQuestion, 'id' | 'createdAt' | 'answers'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before posting a question.')
+    const profile = await firebaseProfile(firebaseAuth.currentUser.uid)
+    if (!profile || profile.role !== 'student') throw new Error('Only verified student accounts can post a question.')
     const text = sanitizeCommunityText(input.text.trim())
     if (!text) throw new Error('Question text is required.')
     const questionRef = doc(collection(firestore, 'courseQuestions'))
@@ -627,7 +637,8 @@ export const services = {
     const course = await this.course(input.courseId)
     const instance = course ? await this.legacyCourseInstance(course) : null
     const instanceId = input.courseInstanceId ?? instance?.id
-    const question = { courseId: input.courseId, ...(instanceId ? { courseInstanceId: instanceId } : {}), category: input.category, text, anonymous: true, notificationKey, createdAt }
+    const anonymous = input.anonymous !== false
+    const question = { courseId: input.courseId, ...(instanceId ? { courseInstanceId: instanceId } : {}), category: input.category, text, anonymous, displayName: anonymous ? null : profile.name, notificationKey, createdAt }
     const courseSnapshot = await getDoc(doc(firestore, 'courses', input.courseId))
     if (!courseSnapshot.exists()) throw new Error('This course no longer exists.')
     const teacherIds: string[] = Array.isArray(courseSnapshot.data().teacherIds) ? courseSnapshot.data().teacherIds.map(String) : []
@@ -664,10 +675,41 @@ export const services = {
     await deleteDoc(doc(firestore, 'courseQuestions', questionId, 'answers', answerId))
   },
   async reportContent(contentType: ContentType, contentId: string, reason: ReportReason, questionId?: string, description = '', courseInstanceId?: string) {
-    const { auth: firebaseAuth } = requireFirebase()
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before reporting content.')
     const url = backendUrl()
-    if (!url) throw new Error('Reporting requires the configured moderation backend.')
+    if (!url) {
+      const profile = await this.session()
+      if (!profile || !['student', 'teacher'].includes(profile.role)) throw new Error('Only students and teachers can report content.')
+      if (contentType === 'answer' && !questionId) throw new Error('A question is required to report an answer.')
+      const reportRef = doc(collection(firestore, 'reports'))
+      const createdAt = Date.now()
+      const batch = writeBatch(firestore)
+      batch.set(reportRef, {
+        contentType,
+        contentId,
+        ...(courseInstanceId ? { courseInstanceId } : {}),
+        ...(questionId ? { questionId } : {}),
+        reportedBy: firebaseAuth.currentUser.uid,
+        reporterId: firebaseAuth.currentUser.uid,
+        reporterRole: profile.role,
+        reportedUserId: '',
+        category: reason,
+        reason,
+        description: description.trim().slice(0, 500),
+        status: 'pending',
+        createdAt,
+      })
+      batch.set(doc(firestore, 'adminNotifications', reportRef.id), {
+        reportId: reportRef.id,
+        title: 'New reported content',
+        body: `${reason} report requires review.`,
+        read: false,
+        createdAt,
+      })
+      await batch.commit()
+      return
+    }
     const token = await firebaseAuth.currentUser.getIdToken()
     const response = await fetch(`${url}/v1/reports`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ contentType, contentId, reason, description, questionId, ...(courseInstanceId ? { courseInstanceId } : {}) }) })
     const result = await response.json().catch(() => ({})) as { error?: string }
@@ -758,7 +800,7 @@ export const services = {
     const { db: firestore } = requireFirebase()
     await setDoc(doc(firestore, 'notifications', notificationId), { read: true }, { merge: true })
   },
-  async updateReportStatus(reportId: string, status: Report['status'], action: ReportAction = status === 'resolved' ? 'other' : 'kept') {
+  async updateReportStatus(reportId: string, status: Report['status'], action: 'kept' | 'removed') {
     const { db: firestore } = requireFirebase()
     const createdAt = Date.now()
     const batch = writeBatch(firestore)
@@ -766,55 +808,63 @@ export const services = {
     batch.set(doc(collection(firestore, 'moderationHistory')), { action, targetType: 'report', targetId: reportId, reportId, summary: `Report ${action}.`, createdAt })
     await batch.commit()
   },
-  async warnReportedUser(reportId: string) {
-    const { auth: firebaseAuth } = requireFirebase()
-    const url = backendUrl()
-    if (!url) throw new Error('Identity-safe account warnings require EXPO_PUBLIC_BACKEND_URL and the separate backend.')
-    if (!firebaseAuth.currentUser) throw new Error('Sign in again before moderating content.')
-    const token = await firebaseAuth.currentUser.getIdToken()
-    const response = await fetch(`${url}/v1/reports/${encodeURIComponent(reportId)}/warn`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
-    const result = await response.json().catch(() => ({})) as { error?: string }
-    if (!response.ok) throw new Error(result.error ?? 'Could not issue the account warning.')
-  },
-  async suspendReportedUser(reportId: string) {
-    const { auth: firebaseAuth } = requireFirebase()
-    const url = backendUrl()
-    if (!url || !firebaseAuth.currentUser) throw new Error('Account suspension requires the configured moderation backend.')
-    const token = await firebaseAuth.currentUser.getIdToken()
-    const response = await fetch(`${url}/v1/reports/${encodeURIComponent(reportId)}/action`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'suspended' }) })
-    const result = await response.json().catch(() => ({})) as { error?: string }
-    if (!response.ok) throw new Error(result.error ?? 'Could not suspend the reported user.')
-  },
   async courseGuides(courseId: string): Promise<CourseGuide[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'courseGuides'), where('courseId', '==', courseId), limit(QUERY_LIMITS.guides)))
-    return snapshot.docs.map(item => ({ id: item.id, courseId: String(item.data().courseId ?? ''), title: String(item.data().title ?? ''), text: String(item.data().text ?? ''), resources: item.data().resources ? String(item.data().resources) : undefined, createdAt: Number(item.data().createdAt ?? 0) })).sort((left, right) => right.createdAt - left.createdAt)
+    return snapshot.docs.map(item => ({ id: item.id, courseId: String(item.data().courseId ?? ''), category: item.data().category ? String(item.data().category) : undefined, title: String(item.data().title ?? ''), text: String(item.data().text ?? ''), resources: item.data().resources ? String(item.data().resources) : undefined, anonymous: item.data().anonymous !== false, displayName: typeof item.data().displayName === 'string' ? item.data().displayName : null, createdAt: Number(item.data().createdAt ?? 0) })).sort((left, right) => right.createdAt - left.createdAt)
   },
   async addCourseGuide(input: Omit<CourseGuide, 'id' | 'createdAt'>) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before sharing guidance.')
+    const user = firebaseAuth.currentUser
+    const profile = await firebaseProfile(user.uid)
+    if (!profile || profile.role !== 'student') throw new Error('Only students can share course advice.')
     const title = sanitizeCommunityText(input.title.trim())
     const text = sanitizeCommunityText(input.text.trim())
     if (!title || !text) throw new Error('Add a guide title and useful advice.')
     const course = await this.course(input.courseId)
     const instance = course ? await this.legacyCourseInstance(course) : null
     const instanceId = input.courseInstanceId ?? instance?.id
-    const completionIds = input.courseInstanceId
-      ? [input.courseInstanceId]
-      : [input.courseId, ...(instanceId && instanceId !== input.courseId ? [instanceId] : [])]
-    const completed = await Promise.all(completionIds.map(id => getDoc(doc(firestore, 'users', firebaseAuth.currentUser!.uid, 'completedCourses', id))))
-    if (!completed.some(snapshot => snapshot.exists() && snapshot.data().completed === true)) throw new Error('You can share advice only for a course you have completed.')
+    if (!course) throw new Error('This course is not available for advice yet.')
     const guideRef = doc(collection(firestore, 'courseGuides'))
     const createdAt = Date.now()
-    const batch = writeBatch(firestore)
-    batch.set(guideRef, { courseId: input.courseId, ...(instanceId ? { courseInstanceId: instanceId } : {}), title, text, resources: input.resources?.trim() || '', createdAt })
-    batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'guides', guideRef.id), {
-      id: guideRef.id,
-      courseId: input.courseId,
-      ...(instanceId ? { courseInstanceId: instanceId } : {}),
-      createdAt,
-    })
-    await batch.commit()
+    const category = input.category?.trim() || 'General Advice'
+    const anonymous = input.anonymous !== false
+    const displayName = anonymous ? null : profile.name
+    const commitGuide = async (includeCategory: boolean) => {
+      const batch = writeBatch(firestore)
+      batch.set(guideRef, {
+        courseId: input.courseId,
+        ...(instanceId ? { courseInstanceId: instanceId } : {}),
+        ...(includeCategory ? { category } : {}),
+        title,
+        text,
+        resources: input.resources?.trim() || '',
+        anonymous,
+        displayName,
+        createdAt,
+      })
+      batch.set(doc(firestore, 'users', user.uid, 'guides', guideRef.id), {
+        id: guideRef.id,
+        courseId: input.courseId,
+        ...(instanceId ? { courseInstanceId: instanceId } : {}),
+        anonymous,
+        displayName,
+        createdAt,
+      })
+      await batch.commit()
+    }
+    try {
+      await commitGuide(true)
+      return { categorySaved: true }
+    } catch (reason) {
+      const code = typeof reason === 'object' && reason !== null && 'code' in reason
+        ? String(reason.code)
+        : ''
+      if (code !== 'permission-denied') throw reason
+      await commitGuide(false)
+      return { categorySaved: false }
+    }
   },
   async deleteCourseGuide(guideId: string) {
     const { db: firestore } = requireFirebase()
@@ -855,22 +905,62 @@ export const services = {
     }))
     return groups.flat().sort((a, b) => b.createdAt - a.createdAt)
   },
+  async studentNotifications(userId: string): Promise<AppNotification[]> {
+    return this.questionNotifications(userId)
+  },
+  subscribeStudentNotifications(userId: string, onChange: (notifications: AppNotification[]) => void, onError: (reason: Error) => void): Unsubscribe {
+    const { db: firestore } = requireFirebase()
+    let disposed = false
+    const questionUnsubscribes = new Map<string, Unsubscribe>()
+    const questionNotifications = new Map<string, AppNotification[]>()
+    const publish = () => {
+      if (!disposed) onChange(Array.from(questionNotifications.values()).flat().sort((left, right) => right.createdAt - left.createdAt))
+    }
+
+    const questionUnsubscribe = onSnapshot(collection(firestore, 'users', userId, 'questions'), snapshot => {
+      const questionKeys = new Map(snapshot.docs
+        .map(question => [question.id, question.data().notificationKey] as const)
+        .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string'))
+      for (const [questionId, unsubscribe] of questionUnsubscribes) {
+        if (questionKeys.has(questionId)) continue
+        unsubscribe()
+        questionUnsubscribes.delete(questionId)
+        questionNotifications.delete(questionId)
+      }
+      for (const [questionId, notificationKey] of questionKeys) {
+        if (questionUnsubscribes.has(questionId)) continue
+        const noticeQuery = query(
+          collection(firestore, 'courseQuestionNotifications'),
+          where('questionId', '==', questionId),
+          where('notificationKey', '==', notificationKey),
+        )
+        questionUnsubscribes.set(questionId, onSnapshot(noticeQuery, notices => {
+          questionNotifications.set(questionId, notices.docs.map(item => ({
+            id: item.id,
+            questionId: String(item.data().questionId ?? ''),
+            courseId: String(item.data().courseId ?? ''),
+            title: String(item.data().title ?? 'Course update'),
+            body: String(item.data().body ?? ''),
+            read: item.data().read === true,
+            createdAt: Number(item.data().createdAt ?? 0),
+          })))
+          publish()
+        }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch question notifications.'))))
+      }
+      publish()
+    }, reason => onError(reason instanceof Error ? reason : new Error('Unable to watch your questions.')))
+
+    return () => {
+      disposed = true
+      questionUnsubscribe()
+      questionUnsubscribes.forEach(unsubscribe => unsubscribe())
+      questionUnsubscribes.clear()
+    }
+  },
   async markQuestionNotificationRead(notificationId: string) {
     const { db: firestore } = requireFirebase()
     await setDoc(doc(firestore, 'courseQuestionNotifications', notificationId), { read: true }, { merge: true })
   },
-  async userNotifications(userId: string): Promise<AppNotification[]> {
-    const { db: firestore } = requireFirebase()
-    const profile = await this.session()
-    if (!profile || profile.id !== userId) throw new Error('Sign in to read your notifications.')
-    const snapshot = await getDocs(query(collection(firestore, 'userNotifications'), where('recipientId', '==', userId), orderBy('createdAt', 'desc')))
-    return snapshot.docs.map(item => ({ id: item.id, reportId: typeof item.data().reportId === 'string' ? item.data().reportId : undefined, title: String(item.data().title ?? 'Notification'), body: String(item.data().body ?? ''), read: item.data().read === true, createdAt: Number(item.data().createdAt ?? 0), category: 'reports' }))
-  },
-  async markUserNotificationRead(notificationId: string) {
-    const { db: firestore } = requireFirebase()
-    await setDoc(doc(firestore, 'userNotifications', notificationId), { read: true }, { merge: true })
-  },
-
   async myActivity(userId: string): Promise<ActivityItem[]> {
     const { db: firestore } = requireFirebase()
     const snapshot = await getDocs(query(collection(firestore, 'users', userId, 'activity'), orderBy('createdAt', 'desc')))

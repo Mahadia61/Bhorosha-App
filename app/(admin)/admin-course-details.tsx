@@ -65,7 +65,7 @@ export default function AdminCourseDetails() {
   return (
     <SafeAreaView
       className="flex-1 bg-[#F5F6F8] dark:bg-slate-950"
-      edges={["top"]}
+      edges={["left", "right", "bottom"]}
     >
       <ScrollView
         className="flex-1 px-5"
@@ -87,14 +87,6 @@ export default function AdminCourseDetails() {
               Course information, feedback, and discussion.
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push("/admin-profile" as never)}
-            className="h-11 w-11 items-center justify-center rounded-full bg-[#DCEBFF]"
-          >
-            <Text className="text-lg font-bold text-[#0B6BFF]">
-              {profile.name.trim().charAt(0).toUpperCase() || "A"}
-            </Text>
-          </Pressable>
         </View>
         {!data && !error ? (
           <View className="items-center py-24">

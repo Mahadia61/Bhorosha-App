@@ -124,6 +124,10 @@ test('unverified teacher can access assigned course feedback and Q&A; assignment
   await teacherClient.services.addQuestionAnswer(question.id, linked, 'Chapters one and two.')
   assert.equal((await student.services.reviews(course.id))[0].responses.length, 1)
   assert.equal((await student.services.courseQuestions(course.id))[0].answers.length, 1)
+  const studentNotices = await student.services.questionNotifications('student')
+  assert.equal(studentNotices.length, 1)
+  assert.equal(studentNotices[0].read, false)
+  assert.match(studentNotices[0].body, /Chapters one and two/)
   for (const operation of [() => getDoc(doc(teacherClient.db, 'courses', unrelated.id)), () => teacherClient.services.reviews(unrelated.id), () => teacherClient.services.courseQuestions(unrelated.id), () => teacherClient.services.createCourse(courseInput(first)), () => teacherClient.services.updateCourse(course.id, courseInput(first)), () => teacherClient.saveTeacherProfile(teacherInput()), () => updateDoc(doc(teacherClient.db, 'teacherProfiles', first.id), { name: 'Unauthorized edit' })]) await assertFails(operation())
   await admin.services.updateCourse(course.id, { ...courseInput(second), teacherIds: [second.id], teacherNames: [second.name] })
   assert.equal((await teacherClient.services.courses()).length, 0)
@@ -135,6 +139,32 @@ test('unverified teacher can access assigned course feedback and Q&A; assignment
   await admin.services.updateCourse(course.id, { ...courseInput(second), teacherIds: [], teacherNames: [] })
   assert.equal((await student.services.reviews(course.id))[0].id, review.id)
   assert.equal((await student.services.courseQuestions(course.id))[0].id, question.id)
+})
+
+test('reporting creates an admin notification without a moderation backend', async () => {
+  const admin = client('admin', 'admin@example.com')
+  const course = await admin.services.createCourse({ ...courseInput({ id: 'unused', name: 'Unused' }), teacherIds: [], teacherNames: [] })
+  await seed({ 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd') })
+  const student = client('student', 'u1@student.cuet.ac.bd')
+  await student.services.addReview({ courseId: course.id, text: 'Helpful feedback.', ratings, anonymous: true })
+  const [review] = await student.services.reviews(course.id)
+  const originalBackendUrl = process.env.EXPO_PUBLIC_BACKEND_URL
+  process.env.EXPO_PUBLIC_BACKEND_URL = ''
+  try {
+    await student.services.reportContent('courseReview', review.id, 'Spam', undefined, 'Please review this content.')
+  } finally {
+    if (originalBackendUrl === undefined) delete process.env.EXPO_PUBLIC_BACKEND_URL
+    else process.env.EXPO_PUBLIC_BACKEND_URL = originalBackendUrl
+  }
+  const reports = await admin.services.adminNotifications()
+  assert.equal(reports.length, 1)
+  assert.equal(reports[0].title, 'New reported content')
+  assert.equal(reports[0].read, false)
+  const [report] = await admin.services.allReports()
+  assert.equal(report.contentId, review.id)
+  assert.equal((await student.services.studentNotifications('student')).length, 0)
+  await admin.services.updateReportStatus(report.id, 'resolved', 'kept')
+  assert.equal((await admin.services.allReports())[0].action, 'kept')
 })
 
 test('email is optional, normalized, unique and can be added before a later login', async () => {
@@ -151,6 +181,120 @@ test('email is optional, normalized, unique and can be added before a later logi
   assert.equal((await teacherClient.linkTeacherAccount(account('teacher'))).teacherProfileId, teacher.id)
   await assert.rejects(admin.saveTeacherProfile(teacherInput('teacher2@cuet.ac.bd'), teacher.id), /linked teacher/)
   await assertFails(getDocs(collection(teacherClient.db, 'teacherProfileEmails')))
+})
+
+test('students can submit a course review and senior advice without a course instance or backend', async () => {
+  const studentEmail = 'u2204061@student.cuet.ac.bd'
+  const teacher = { ...account('teacher-1', 'teacher'), teacherProfileId: 'teacher-1' }
+  await seed({
+    'users/student': {
+      id: 'student', name: 'Student', email: studentEmail, role: 'student',
+      department: 'CSE', batch: '2022', studentId: '2204061',
+      currentLevel: '1', currentTerm: '1', darkMode: false,
+      active: true, emailVerified: true, updatedAt: Date.now(),
+    },
+    'courses/course-1': {
+      code: 'CSE 101', title: 'Introductory Course', credits: 3,
+      department: 'CSE', batch: '2021', level: '1', term: '1',
+      courseType: 'Theory', teacherIds: ['teacher-1'], teacherNames: ['Teacher'],
+      tags: [], status: 'active',
+    },
+    'users/teacher-1': teacher,
+    'teacherDirectory/teacher-1': {
+      name: 'Teacher', department: 'CSE', active: true,
+    },
+  })
+  const student = client('student', studentEmail)
+  await student.services.addReview({
+    courseId: 'course-1',
+    text: 'Helpful course with clear material.',
+    ratings,
+    anonymous: true,
+  })
+  const savedReviews = await getDocs(query(collection(student.db, 'courseReviews'), where('courseId', '==', 'course-1')))
+  assert.equal(savedReviews.size, 1)
+  await student.services.updateReview(savedReviews.docs[0].id, {
+    courseId: 'course-1',
+    text: 'Updated: helpful course with clear material.',
+    ratings,
+    anonymous: true,
+  })
+  assert.equal((await student.services.reviews('course-1'))[0].text, 'Updated: helpful course with clear material.')
+
+  await student.services.addCourseGuide({
+    courseId: 'course-1',
+    category: 'Preparation Tips',
+    title: 'How to prepare',
+    text: 'Review the lecture notes each week.',
+    resources: '',
+    anonymous: false,
+  })
+  const savedGuides = await getDocs(query(collection(student.db, 'courseGuides'), where('courseId', '==', 'course-1')))
+  assert.equal(savedGuides.size, 1)
+  assert.equal(savedGuides.docs[0].data().category, 'Preparation Tips')
+  assert.equal(savedGuides.docs[0].data().anonymous, false)
+  assert.equal(savedGuides.docs[0].data().displayName, 'Student')
+  const savedGuideMirror = await getDocs(collection(student.db, 'users', 'student', 'guides'))
+  assert.equal(savedGuideMirror.docs[0].data().displayName, 'Student')
+  assert.equal((await student.services.courseGuides('course-1'))[0].title, 'How to prepare')
+
+  await student.services.addProfessorReview({
+    professorId: 'teacher-1',
+    text: 'Clear explanations and helpful feedback.',
+    rating: 5,
+    aspects: {
+      'Teaching Quality': 5,
+      Communication: 4,
+      Availability: 5,
+    },
+    tags: ['Clear explanation', 'Supportive'],
+    anonymous: true,
+  })
+  const savedProfessorReviews = await getDocs(query(collection(student.db, 'professorReviews'), where('professorId', '==', 'teacher-1')))
+  assert.equal(savedProfessorReviews.size, 1)
+  assert.deepEqual(savedProfessorReviews.docs[0].data().aspects, {
+    'Teaching Quality': 5,
+    Communication: 4,
+    Availability: 5,
+  })
+  assert.deepEqual(savedProfessorReviews.docs[0].data().tags, ['Clear explanation', 'Supportive'])
+  const [privateProfessorReview] = await student.services.myProfessorReviews('student')
+  assert.deepEqual(privateProfessorReview.aspects, savedProfessorReviews.docs[0].data().aspects)
+  assert.deepEqual(privateProfessorReview.tags, savedProfessorReviews.docs[0].data().tags)
+
+  await student.services.addCourseQuestion({
+    courseId: 'course-1',
+    category: 'Course Content',
+    text: 'Question title\n\nHow should I approach this topic?',
+    anonymous: true,
+  })
+  await student.services.addCourseQuestion({
+    courseId: 'course-1',
+    category: 'Academic',
+    text: 'How do I plan my academic term?',
+    anonymous: false,
+  })
+  await student.services.addCourseQuestion({
+    courseId: 'course-1',
+    category: 'Advising',
+    text: 'Where can I get advising support?',
+    anonymous: true,
+  })
+  const savedQuestions = await getDocs(query(collection(student.db, 'courseQuestions'), where('courseId', '==', 'course-1')))
+  assert.equal(savedQuestions.size, 3)
+  assert.deepEqual(
+    savedQuestions.docs.map(question => question.data().category).sort(),
+    ['Academic', 'Advising', 'Course Content'],
+  )
+  const namedQuestion = savedQuestions.docs.find(question => question.data().category === 'Academic')
+  assert.equal(namedQuestion.data().anonymous, false)
+  assert.equal(namedQuestion.data().displayName, 'Student')
+  const privateQuestions = await getDocs(collection(student.db, 'users', 'student', 'questions'))
+  assert.equal(privateQuestions.docs.find(question => question.data().category === 'Academic').data().displayName, 'Student')
+  assert.equal(
+    savedQuestions.docs.find(question => question.data().category === 'Course Content').data().text,
+    'Question title\n\nHow should I approach this topic?',
+  )
 })
 
 test('legacy migration retains IDs and reviews, stays idempotent, and preserves profile editing', async () => {

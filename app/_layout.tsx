@@ -1,14 +1,17 @@
 import '../global.css'
-import { Stack, router } from 'expo-router'
+import { Stack, router, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { BackHandler } from 'react-native'
+import { BackHandler, View } from 'react-native'
 import { useEffect } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AppProvider } from '@/providers/AppProvider'
 import { useApp } from '@/providers/AppProvider'
+import { AppRoleActions } from '@/components/ui'
 
 function AppShell() {
-  const { isDark } = useApp()
+  const { isDark, profile } = useApp()
+  const segments = useSegments()
+  const showRoleActions = !!profile && !segments.some(segment => String(segment) === '(auth)')
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!router.canGoBack()) return false
@@ -17,7 +20,7 @@ function AppShell() {
     })
     return () => subscription.remove()
   }, [])
-  return <><StatusBar style={isDark ? 'light' : 'dark'} /><Stack screenOptions={{ headerShown: false }} /></>
+  return <View className="flex-1"><StatusBar style={isDark ? 'light' : 'dark'} /><AppRoleActions visible={showRoleActions} /><Stack screenOptions={{ headerShown: false }} /></View>
 }
 
 export default function RootLayout() { return <SafeAreaProvider><AppProvider><AppShell /></AppProvider></SafeAreaProvider> }

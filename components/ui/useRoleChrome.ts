@@ -19,7 +19,7 @@ export function useRoleChrome(role?: Role) {
     if (resolved === 'teacher') {
       return services.subscribeTeacherNotifications(profile.id, items => setUnread(items.filter(item => !item.read).length), () => setUnread(0))
     }
-    void services.questionNotifications(profile.id).then(items => setUnread(items.filter(item => !item.read).length)).catch(() => setUnread(0))
+    return services.subscribeStudentNotifications(profile.id, items => setUnread(items.filter(item => !item.read).length), () => setUnread(0))
   }, [profile?.id, resolved])
 
   return {

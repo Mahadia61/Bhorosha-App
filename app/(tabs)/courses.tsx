@@ -1,6 +1,6 @@
 import { courseService, teachesCourse } from "@/features/courses";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import {
@@ -14,7 +14,6 @@ import {
   Empty,
   FilterButton,
   FilterOption,
-  FilterSheet,
   LoadingState,
   PageHeader,
   Screen,
@@ -47,6 +46,9 @@ export default function Courses() {
     courseType: null,
   });
   const [filterOpen, setFilterOpen] = useState(false);
+  const filterAnchorRef = useRef<View>(null);
+  const [filterPosition, setFilterPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 0 });
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const error = coursesError?.message ?? "";
 
   const departmental = useMemo(
@@ -94,7 +96,19 @@ export default function Courses() {
   ].filter(Boolean).length;
   const openFilters = () => {
     setDraft({ department, level, term, credit, courseType });
-    setFilterOpen(true);
+    filterAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      const panelWidth = Math.min(360, windowWidth - 16);
+      const panelHeight = Math.min(560, windowHeight - 32);
+      const left = Math.max(8, Math.min(x + width - panelWidth, windowWidth - panelWidth - 8));
+      const below = y + height + 6;
+      const top = below + panelHeight <= windowHeight - 8
+        ? below
+        : y - panelHeight - 6 >= 8
+          ? y - panelHeight - 6
+          : Math.max(8, Math.min(below, windowHeight - panelHeight - 8));
+      setFilterPosition({ left, top, width: panelWidth, maxHeight: panelHeight });
+      setFilterOpen(true);
+    });
   };
   const applyFilters = () => {
     setDepartment(draft.department);
@@ -142,7 +156,9 @@ export default function Courses() {
               <Text className="text-sm text-muted">
                 {visible.length} course{visible.length === 1 ? "" : "s"} found
               </Text>
-              <FilterButton count={activeFilterCount} onPress={openFilters} />
+              <View ref={filterAnchorRef} collapsable={false}>
+                <FilterButton count={activeFilterCount} onPress={openFilters} />
+              </View>
             </View>
           </>
         }
@@ -161,6 +177,7 @@ export default function Courses() {
       />
       <FilterModal
         open={filterOpen}
+        position={filterPosition}
         draft={draft}
         departments={departmentOptions}
         credits={creditOptions}
@@ -270,6 +287,7 @@ function Meta({
 
 function FilterModal({
   open,
+  position,
   draft,
   departments,
   credits,
@@ -279,6 +297,7 @@ function FilterModal({
   onApply,
 }: {
   open: boolean;
+  position: { left: number; top: number; width: number; maxHeight: number };
   draft: FilterState;
   departments: string[];
   credits: number[];
@@ -288,71 +307,59 @@ function FilterModal({
   onApply: () => void;
 }) {
   return (
-    <FilterSheet
-      open={open}
-      title="Filter courses"
-      subtitle="Refine the course catalogue."
-      onClose={onClose}
-      onClear={onClear}
-      onApply={onApply}
-    >
-      <FlatList
-        data={[
-          {
-            label: "Department",
-            options: departments,
-            value: draft.department,
-            key: "department",
-          },
-          {
-            label: "Level",
-            options: academicLevels,
-            value: draft.level,
-            key: "level",
-          },
-          {
-            label: "Term",
-            options: academicTerms,
-            value: draft.term,
-            key: "term",
-          },
-          {
-            label: "Credits",
-            options: credits,
-            value: draft.credit,
-            key: "credit",
-          },
-          {
-            label: "Course type",
-            options: courseTypes,
-            value: draft.courseType,
-            key: "courseType",
-          },
-        ]}
-        keyExtractor={(item) => item.key}
-        renderItem={({ item }) => (
-          <FilterGroup
-            label={item.label}
-            options={item.options}
-            value={item.value}
-            onChange={(value) =>
-              onChange({ ...draft, [item.key]: value } as FilterState)
-            }
-            format={
-              item.key === "level"
-                ? (value) => `Level ${value}`
-                : item.key === "term"
-                  ? (value) => `Term ${value}`
-                  : item.key === "credit"
-                    ? (value) => `${value} credits`
-                    : undefined
-            }
-          />
-        )}
-        contentContainerStyle={{ paddingBottom: 18 }}
-        showsVerticalScrollIndicator={false}
-      />
-    </FilterSheet>
+    <Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View className="flex-1">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close course filters"
+          onPress={onClose}
+          className="absolute inset-0"
+        />
+        <View
+          className="absolute overflow-hidden rounded-2xl border border-line bg-white dark:border-slate-700 dark:bg-slate-900"
+          style={{
+            left: position.left,
+            top: position.top,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            elevation: 12,
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+          }}
+        >
+          <View className="flex-row items-center justify-between border-b border-line px-4 py-3 dark:border-slate-700">
+            <View>
+              <Text className="text-base font-bold text-ink dark:text-white">Filter courses</Text>
+              <Text className="mt-0.5 text-xs text-muted">Refine the course catalogue.</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close course filters" onPress={onClose} hitSlop={8}>
+              <Feather name="x" size={20} color="#64748B" />
+            </Pressable>
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
+            showsVerticalScrollIndicator={false}
+          >
+            <FilterGroup label="Department" options={departments} value={draft.department} onChange={(value) => onChange({ ...draft, department: value })} />
+            <FilterGroup label="Level" options={academicLevels} value={draft.level} onChange={(value) => onChange({ ...draft, level: value })} format={(value) => `Level ${value}`} />
+            <FilterGroup label="Term" options={academicTerms} value={draft.term} onChange={(value) => onChange({ ...draft, term: value })} format={(value) => `Term ${value}`} />
+            <FilterGroup label="Credits" options={credits} value={draft.credit} onChange={(value) => onChange({ ...draft, credit: value })} format={(value) => `${value} credits`} />
+            <FilterGroup label="Course type" options={courseTypes} value={draft.courseType} onChange={(value) => onChange({ ...draft, courseType: value })} />
+          </ScrollView>
+          <View className="flex-row justify-between border-t border-line px-4 py-3 dark:border-slate-700">
+            <Pressable accessibilityRole="button" onPress={onClear} className="rounded-lg px-3 py-2">
+              <Text className="font-semibold text-muted">Clear</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={onApply} className="rounded-lg bg-brand px-5 py-2">
+              <Text className="font-bold text-white">Apply</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 

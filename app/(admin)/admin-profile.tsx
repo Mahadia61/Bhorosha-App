@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -9,16 +9,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useApp } from "@/providers/AppProvider";
 import { Card, PageHeader } from "@/components/ui/ui";
 import { ProfileActionRow, ProfileIdentityCard } from "@/components/common/ProfileComponents";
 
 export default function AdminProfile() {
   const { profile, updateProfile, signOut } = useApp();
-  const [editing, setEditing] = useState(false);
+  const { section } = useLocalSearchParams<{ section?: string }>();
+  const [editing, setEditing] = useState(section === "edit");
   const [name, setName] = useState(profile?.name ?? "");
   const [saving, setSaving] = useState(false);
+  useEffect(() => setEditing(section === "edit"), [section]);
   if (!profile || profile.role !== "admin") return null;
   const save = async () => {
     if (!name.trim())

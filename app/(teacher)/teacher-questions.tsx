@@ -19,7 +19,6 @@ export default function TeacherQuestions(_props: { inTab?: boolean } = {}) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [sort, setSort] = useState<SortKey>('recent')
-  const [liked, setLiked] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -51,7 +50,7 @@ export default function TeacherQuestions(_props: { inTab?: boolean } = {}) {
       </View>
       {visibleQuestions.length ? visibleQuestions.map(question => {
         const course = courses.find(item => item.id === question.courseId)
-        return <TeacherQuestionCard key={question.id} question={question} course={course} liked={liked[question.id]} onLike={() => setLiked(current => ({ ...current, [question.id]: !current[question.id] }))} onAnswered={load} />
+        return <TeacherQuestionCard key={question.id} question={question} course={course} onAnswered={load} />
       }) : <Empty title="No course questions" body="Questions from students in your assigned courses will appear here." />}
     </ScrollView>
   </Screen>

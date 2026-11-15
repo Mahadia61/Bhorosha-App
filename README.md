@@ -61,11 +61,12 @@ Router organizes screens by route and user role, while shared components,
 feature modules, hooks, and services support reusable UI and application
 logic. The main experiences are:
 
-- **Students:** discover courses and teacher profiles; write course and teacher
-  reviews; ask questions; read answers and course guides; and view activity
-  and notifications.
-- **Teachers:** view assigned courses and feedback, answer course questions,
-  respond to reviews, and maintain profile details.
+- **Students:** search and filter department courses by academic and course
+  details; search teacher profiles by name, department, or course; write course
+  and teacher reviews; ask questions; read answers and course guides; vote on
+  community content; and view activity and notifications.
+- **Teachers:** search assigned courses and view feedback, answer course
+  questions, respond to reviews, and maintain profile details.
 - **Administrators:** manage users, teacher profiles, courses and assignments,
   review reports and moderation activity, and view platform analytics.
 
@@ -153,14 +154,19 @@ flowchart TD
 - Students verify their email before accessing Bhorosha; teachers sign in with
   the CUET email on their admin-created profile without email verification.
   Manage a personal profile.
-- Browse department courses and teacher profiles.
+- Search and filter department courses by department, level, term, credits, and
+  course type. Search teacher profiles by name, department, or course; the
+  teacher directory has no filter menu.
 - Submit and edit course and teacher reviews.
-- Ask course questions, read answers, and follow activity notifications.
+- Ask course questions, read answers, and vote on course and teacher reviews,
+  questions, answers, and course guides.
+- Follow activity and answer notifications.
 - View review activity and aggregate feedback summaries.
 
 ### Teachers
 
-- View assigned courses and course feedback.
+- Search assigned courses; course type and level filters are not shown on the
+  teacher course list. View feedback for assigned courses.
 - Answer student questions and respond to feedback.
 - Review teaching insights and notifications.
 - Maintain personal biography and profile photo details.

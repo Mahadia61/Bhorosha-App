@@ -3,10 +3,11 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native'
 import { router, type Href } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Button, Card, Stars, colors } from '@/components/ui/ui'
+import { CommunityVoteButtons } from '@/components/feedback/CommunityVoteButtons'
 import { services } from '@/lib/services/services'
 import { useApp } from '@/providers/AppProvider'
 import { academicLabel } from '@/lib/utils/academic'
-import type { ContentType, Course, CourseGuide, CourseQuestion, Professor, ReportReason, Review } from '@/lib/types/types'
+import type { ContentType, Course, CourseGuide, CourseQuestion, Professor, QuestionAnswer, ReportReason, Review } from '@/lib/types/types'
 import { ReportButton } from '@/components/moderation/ReportButton'
 
 const reportReasons: ReportReason[] = ['Spam', 'Harassment', 'Inappropriate content', 'False information', 'Offensive language', 'Other']
@@ -161,7 +162,7 @@ export function TeacherCourseHero({ course }: { course: Course }) {
   </View>
 }
 
-export function TeacherReviewCard({ review, course, liked, onLike }: { review: Review; course?: Course; liked?: boolean; onLike?: () => void }) {
+export function TeacherReviewCard({ review, course }: { review: Review; course?: Course }) {
   const name = review.anonymous ? 'Anonymous student' : review.displayName ?? 'Student'
   const rating = reviewAverage(review)
   return <Card className="mt-3">
@@ -178,7 +179,7 @@ export function TeacherReviewCard({ review, course, liked, onLike }: { review: R
         <Text className="mt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">{review.text}</Text>
         {review.responses?.map(response => <View key={response.id} className="mt-3 rounded-xl bg-blue-50 p-3 dark:bg-slate-800"><Text className="text-xs font-bold text-brand">{response.teacherName}</Text><Text className="mt-1 text-sm text-ink dark:text-white">{response.text}</Text></View>)}
         <View className="mt-3 flex-row items-center justify-between">
-          <Pressable onPress={onLike} className="flex-row items-center gap-1.5"><Feather name="thumbs-up" size={15} color={liked ? colors.brand : colors.muted} /><Text className={`text-xs font-semibold ${liked ? 'text-brand' : 'text-muted'}`}>{liked ? 1 : 0}</Text></Pressable>
+          <CommunityVoteButtons contentType="courseReview" contentId={review.id} />
           <ReportButton contentType="courseReview" contentId={review.id} />
         </View>
       </View>
@@ -186,7 +187,7 @@ export function TeacherReviewCard({ review, course, liked, onLike }: { review: R
   </Card>
 }
 
-export function TeacherQuestionCard({ question, course, liked, onLike, onAnswered }: { question: CourseQuestion; course?: Course; liked?: boolean; onLike?: () => void; onAnswered?: () => Promise<void> | void }) {
+export function TeacherQuestionCard({ question, course, onAnswered }: { question: CourseQuestion; course?: Course; onAnswered?: () => Promise<void> | void }) {
   const { profile } = useApp()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
@@ -219,24 +220,41 @@ export function TeacherQuestionCard({ question, course, liked, onLike, onAnswere
           <Text className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-slate-800">{question.category}</Text>
           {course?.courseType ? <Text className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-slate-800">{course.courseType}</Text> : null}
         </View>
-        <View className="mt-3 flex-row items-center justify-between">
-          <View className="flex-row items-center gap-3">
+        <View className="mt-3 flex-row flex-wrap items-center justify-between gap-3">
+          <View className="flex-row items-center gap-4">
+            <CommunityVoteButtons contentType="courseQuestion" contentId={question.id} />
             <View className="flex-row items-center gap-1"><Feather name="message-circle" size={14} color={colors.muted} /><Text className="text-xs text-muted">{answers.length} answer{answers.length === 1 ? '' : 's'}</Text></View>
-            <Pressable onPress={onLike} className="flex-row items-center gap-1"><Feather name="thumbs-up" size={14} color={liked ? colors.brand : colors.muted} /><Text className={`text-xs ${liked ? 'text-brand' : 'text-muted'}`}>{liked ? 1 : 0}</Text></Pressable>
           </View>
           <View className="flex-row items-center gap-3"><ReportButton contentType="courseQuestion" contentId={question.id} /><Pressable onPress={() => setOpen(current => !current)} className="flex-row items-center gap-1 rounded-lg bg-brand px-3 py-1.5">
             <Feather name="corner-up-left" size={13} color="#FFFFFF" />
             <Text className="text-xs font-bold text-white">Answer</Text>
           </Pressable></View>
         </View>
-        {answers.map(answer => <View key={answer.id} className="mt-3 rounded-xl bg-blue-50 p-3 dark:bg-slate-800"><View className="flex-row items-center justify-between"><Text className="text-xs font-bold text-brand">{answer.authorRole === 'teacher' ? answer.authorName : 'Student'}</Text><ReportButton contentType="answer" contentId={answer.id} questionId={question.id} /></View><Text className="mt-1 text-sm text-ink dark:text-white">{answer.text}</Text></View>)}
+        {answers.filter(answer => !answer.parentAnswerId).map(answer => <TeacherAnswerThread key={answer.id} answer={answer} answers={answers} questionId={question.id} />)}
         {open ? <View className="mt-3"><TextInput multiline value={draft} onChangeText={setDraft} placeholder="Write an answer in বাংলা or English" placeholderTextColor="#94A3B8" className="min-h-20 rounded-xl border border-line p-3 text-sm text-ink dark:border-slate-700 dark:text-white" /><Button className="mt-2" loading={sending} onPress={() => { void submit() }}>Post answer</Button></View> : null}
       </View>
     </View>
   </Card>
 }
 
-export function TeacherAdviceCard({ guide, liked, onLike }: { guide: CourseGuide; liked?: boolean; onLike?: () => void }) {
+function TeacherAnswerThread({ answer, answers, questionId }: { answer: QuestionAnswer; answers: QuestionAnswer[]; questionId: string }) {
+  const replies = answers.filter(item => item.parentAnswerId === answer.id)
+  return <View className="ml-3 mt-3 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+    <View className="rounded-xl bg-blue-50 p-3 dark:bg-slate-800">
+      <View className="flex-row items-center justify-between">
+        <Text className="text-xs font-bold text-brand">{answer.authorRole === 'teacher' ? `${answer.authorName} · Teacher` : answer.authorName}</Text>
+        <ReportButton contentType="answer" contentId={answer.id} questionId={questionId} />
+      </View>
+      <Text className="mt-1 text-sm text-ink dark:text-white">{answer.text}</Text>
+      <View className="mt-2">
+        <CommunityVoteButtons contentType="answer" contentId={answer.id} questionId={questionId} />
+      </View>
+    </View>
+    {replies.map(reply => <TeacherAnswerThread key={reply.id} answer={reply} answers={answers} questionId={questionId} />)}
+  </View>
+}
+
+export function TeacherAdviceCard({ guide }: { guide: CourseGuide }) {
   const tags = (guide.resources ?? '').split(/[,|]/).map(item => item.trim()).filter(Boolean)
   return <Card className="mt-3">
     <View className="flex-row items-start justify-between">
@@ -253,7 +271,7 @@ export function TeacherAdviceCard({ guide, liked, onLike }: { guide: CourseGuide
     <Text className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">{guide.text}</Text>
     {tags.length ? <View className="mt-2 flex-row flex-wrap gap-1.5">{tags.map(tag => <Text key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-slate-800">{tag}</Text>)}</View> : null}
     <View className="mt-3 flex-row items-center justify-between">
-      <Pressable onPress={onLike} className="flex-row items-center gap-1.5"><Feather name="thumbs-up" size={15} color={liked ? colors.brand : colors.muted} /><Text className={`text-xs font-semibold ${liked ? 'text-brand' : 'text-muted'}`}>{liked ? 1 : 0}</Text></Pressable>
+      <CommunityVoteButtons contentType="courseGuide" contentId={guide.id} />
     </View>
   </Card>
 }

@@ -104,6 +104,82 @@ test('provisioned login credentials get an app account from the admin profile wi
   assert.equal((await teacherClient.services.courses())[0].id, course.id)
 })
 
+test('community votes persist per user, switch between like and dislike, and can be removed', async () => {
+  const admin = client('admin', 'admin@example.com')
+  const teacher = await admin.saveTeacherProfile(teacherInput())
+  const course = await admin.services.createCourse(courseInput(teacher))
+  await seed({ 'users/student': account('student', 'student', 'u1@student.cuet.ac.bd') })
+  const student = client('student', 'u1@student.cuet.ac.bd')
+  await student.services.addCourseQuestion({
+    courseId: course.id,
+    category: 'Course Content',
+    text: 'Can I vote on this question?',
+    anonymous: true,
+    displayName: null,
+  })
+  const [question] = await student.services.courseQuestions(course.id)
+  const contentKey = encodeURIComponent(['courseQuestion', '', question.id].join(':'))
+  const privateVote = doc(student.db, 'users', 'student', 'communityVotes', contentKey)
+  const votes = collection(student.db, 'communityVotes', contentKey, 'voters')
+
+  await student.services.toggleCommunityVote('courseQuestion', question.id, 'like')
+  const firstVote = (await getDoc(privateVote)).data()
+  assert.equal(firstVote.vote, 'like')
+  assert.equal((await getDocs(votes)).size, 1)
+  const liveState = await new Promise((resolve, reject) => {
+    let unsubscribe
+    const timeout = setTimeout(() => {
+      unsubscribe?.()
+      reject(new Error('Timed out waiting for live community vote state.'))
+    }, 5000)
+    unsubscribe = student.services.subscribeCommunityVotes(
+      'courseQuestion',
+      question.id,
+      state => {
+        if (state.likes === 1 && state.currentVote === 'like') {
+          clearTimeout(timeout)
+          unsubscribe()
+          resolve(state)
+        }
+      },
+      reason => {
+        clearTimeout(timeout)
+        unsubscribe?.()
+        reject(reason)
+      },
+    )
+  })
+  assert.deepEqual(liveState, { likes: 1, dislikes: 0, currentVote: 'like' })
+
+  const reconnectedStudent = client('student', 'u1@student.cuet.ac.bd')
+  await reconnectedStudent.services.toggleCommunityVote('courseQuestion', question.id, 'dislike')
+  assert.equal((await getDoc(privateVote)).data().vote, 'dislike')
+  assert.equal((await getDocs(votes)).size, 1)
+
+  await seed({
+    'courseReviews/votable-review': { courseId: course.id },
+    'professorReviews/votable-professor-review': { professorId: teacher.id },
+    'courseGuides/votable-guide': { courseId: course.id },
+    [`courseQuestions/${question.id}/answers/votable-answer`]: { authorRole: 'teacher' },
+  })
+  await reconnectedStudent.services.toggleCommunityVote('courseReview', 'votable-review', 'like')
+  await reconnectedStudent.services.toggleCommunityVote('professorReview', 'votable-professor-review', 'dislike')
+  await reconnectedStudent.services.toggleCommunityVote('courseGuide', 'votable-guide', 'dislike')
+  await reconnectedStudent.services.toggleCommunityVote('answer', 'votable-answer', 'like', question.id)
+  assert.equal((await getDocs(collection(reconnectedStudent.db, 'communityVotes', encodeURIComponent(['courseReview', '', 'votable-review'].join(':')), 'voters'))).size, 1)
+  assert.equal((await getDocs(collection(reconnectedStudent.db, 'communityVotes', encodeURIComponent(['professorReview', '', 'votable-professor-review'].join(':')), 'voters'))).size, 1)
+  assert.equal((await getDocs(collection(reconnectedStudent.db, 'communityVotes', encodeURIComponent(['courseGuide', '', 'votable-guide'].join(':')), 'voters'))).size, 1)
+  assert.equal((await getDocs(collection(reconnectedStudent.db, 'communityVotes', encodeURIComponent(['answer', question.id, 'votable-answer'].join(':')), 'voters'))).size, 1)
+  assert.equal(
+    (await getDoc(doc(reconnectedStudent.db, 'users', 'student', 'communityVotes', encodeURIComponent(['courseGuide', '', 'votable-guide'].join(':'))))).data().vote,
+    'dislike',
+  )
+
+  await reconnectedStudent.services.toggleCommunityVote('courseQuestion', question.id, 'dislike')
+  assert.equal((await getDoc(privateVote)).exists(), false)
+  assert.equal((await getDocs(votes)).size, 0)
+})
+
 test('unverified teacher can access assigned course feedback and Q&A; assignments and notifications survive linking and removal', async () => {
   const admin = client('admin', 'admin@example.com')
   const first = await admin.saveTeacherProfile(teacherInput())
@@ -123,7 +199,35 @@ test('unverified teacher can access assigned course feedback and Q&A; assignment
   await teacherClient.services.addTeacherResponse(review.id, 'Thank you for the feedback.')
   await teacherClient.services.addQuestionAnswer(question.id, linked, 'Chapters one and two.')
   assert.equal((await student.services.reviews(course.id))[0].responses.length, 1)
-  assert.equal((await student.services.courseQuestions(course.id))[0].answers.length, 1)
+  const [answeredQuestion] = await student.services.courseQuestions(course.id)
+  assert.equal(answeredQuestion.answers.length, 1)
+  const [teacherAnswer] = answeredQuestion.answers
+  assert.equal(teacherAnswer.authorName, linked.name)
+  await assert.rejects(
+    student.services.addQuestionAnswer(question.id, await student.services.session(), 'Thanks for clarifying.', teacherAnswer.id),
+    /Only a teacher can reply/,
+  )
+  const blockedReply = doc(collection(student.db, 'courseQuestions', question.id, 'answers'))
+  const blockedBatch = writeBatch(student.db)
+  const blockedAt = Date.now()
+  blockedBatch.set(blockedReply, {
+    parentAnswerId: teacherAnswer.id,
+    authorRole: 'student',
+    authorName: 'Student',
+    text: 'Unauthorized student reply',
+    createdAt: blockedAt,
+  })
+  blockedBatch.set(doc(student.db, 'users', 'student', 'answers', blockedReply.id), {
+    id: blockedReply.id,
+    questionId: question.id,
+    courseId: course.id,
+    parentAnswerId: teacherAnswer.id,
+    authorRole: 'student',
+    createdAt: blockedAt,
+  })
+  await assertFails(blockedBatch.commit())
+  const [nestedQuestion] = await student.services.courseQuestions(course.id)
+  assert.equal(nestedQuestion.answers.length, 1)
   const studentNotices = await student.services.questionNotifications('student')
   assert.equal(studentNotices.length, 1)
   assert.equal(studentNotices[0].read, false)
@@ -165,6 +269,102 @@ test('reporting creates an admin notification without a moderation backend', asy
   assert.equal((await student.services.studentNotifications('student')).length, 0)
   await admin.services.updateReportStatus(report.id, 'resolved', 'kept')
   assert.equal((await admin.services.allReports())[0].action, 'kept')
+})
+
+test('student account cleanup removes authored content, answers, reports, and votes only', async () => {
+  const admin = client('admin', 'admin@example.com')
+  const teacherProfile = await admin.saveTeacherProfile(teacherInput())
+  const course = await admin.services.createCourse(courseInput(teacherProfile))
+  await seed({
+    'users/student': account('student', 'student', 'u1@student.cuet.ac.bd'),
+    'users/other-student': account('other-student', 'student', 'u2@student.cuet.ac.bd'),
+    'users/teacher': account('teacher'),
+  })
+
+  const student = client('student', 'u1@student.cuet.ac.bd')
+  const otherStudent = client('other-student', 'u2@student.cuet.ac.bd')
+  await student.services.addReview({ courseId: course.id, text: 'My review.', ratings, anonymous: true })
+  await otherStudent.services.addReview({ courseId: course.id, text: 'Keep this review.', ratings, anonymous: true })
+  await student.services.addCourseGuide({
+    courseId: course.id, category: 'Preparation Tips', title: 'My guide',
+    text: 'My study advice.', resources: '', anonymous: true,
+  })
+  await student.services.addProfessorReview({
+    professorId: teacherProfile.id, text: 'My teacher review.', rating: 5,
+    aspects: {}, tags: [], anonymous: true,
+  })
+  await student.services.addCourseQuestion({
+    courseId: course.id, category: 'Course Content', text: 'My question?', anonymous: true,
+  })
+  const teacher = client('teacher', 'teacher1@cuet.ac.bd')
+  const linkedTeacher = await teacher.linkTeacherAccount(account('teacher'))
+  const [studentReview] = (await student.services.reviews(course.id)).filter(review => review.text === 'My review.')
+  const [otherReview] = (await otherStudent.services.reviews(course.id)).filter(review => review.text === 'Keep this review.')
+  const [professorReview] = await student.services.professorReviews(teacherProfile.id)
+  const [question] = await student.services.courseQuestions(course.id)
+  await teacher.services.addTeacherResponse(studentReview.id, 'Teacher response.')
+  await teacher.services.addProfessorResponse(professorReview.id, 'Teacher response.')
+  const [reviewWithResponse] = (await student.services.reviews(course.id)).filter(review => review.id === studentReview.id)
+  const [professorReviewWithResponse] = (await student.services.professorReviews(teacherProfile.id)).filter(review => review.id === professorReview.id)
+  await student.services.addQuestionAnswer(question.id, await student.services.session(), 'My answer.')
+  const [answeredQuestion] = await student.services.courseQuestions(course.id)
+  const [studentAnswer] = answeredQuestion.answers
+  await teacher.services.addQuestionAnswer(question.id, linkedTeacher, 'Teacher reply.', studentAnswer.id)
+  const [fullyAnsweredQuestion] = await student.services.courseQuestions(course.id)
+  const teacherAnswer = fullyAnsweredQuestion.answers.find(answer => answer.authorRole === 'teacher')
+  await student.services.toggleCommunityVote('courseReview', otherReview.id, 'like')
+  await student.services.toggleCommunityVote('courseQuestion', question.id, 'dislike')
+  await student.services.reportContent('courseReview', otherReview.id, 'Spam', undefined, 'My report.')
+  const [report] = await admin.services.allReports()
+  const guideMirrors = await getDocs(collection(student.db, 'users', 'student', 'guides'))
+
+  await student.services.deleteStudentAccountData('student')
+
+  let remaining
+  await env.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore()
+    const studentPath = 'users/student'
+    const studentCollections = ['courseReviews', 'courseReviewIndex', 'professorReviews', 'questions', 'answers', 'guides', 'activity', 'communityVotes']
+    const [studentProfile, ...privateCollections] = await Promise.all([
+      getDoc(doc(firestore, studentPath)),
+      ...studentCollections.map(name => getDocs(collection(firestore, studentPath, name))),
+    ])
+    const [courseReview, courseResponse, professorReviewDoc, professorResponse, questionDoc, answerDoc, teacherAnswerDoc, guideDoc, reportDoc, reportNotification, teacherNotification] = await Promise.all([
+      getDoc(doc(firestore, 'courseReviews', studentReview.id)),
+      getDoc(doc(firestore, 'courseReviews', studentReview.id, 'teacherResponses', reviewWithResponse.responses[0].id)),
+      getDoc(doc(firestore, 'professorReviews', professorReview.id)),
+      getDoc(doc(firestore, 'professorReviews', professorReview.id, 'teacherResponses', professorReviewWithResponse.responses[0].id)),
+      getDoc(doc(firestore, 'courseQuestions', question.id)),
+      getDoc(doc(firestore, 'courseQuestions', question.id, 'answers', studentAnswer.id)),
+      getDoc(doc(firestore, 'courseQuestions', question.id, 'answers', teacherAnswer.id)),
+      getDoc(doc(firestore, 'courseGuides', guideMirrors.docs[0].id)),
+      getDoc(doc(firestore, 'reports', report.id)),
+      getDoc(doc(firestore, 'adminNotifications', report.id)),
+      getDoc(doc(firestore, 'notifications', `${teacherProfile.id}-${question.id}`)),
+    ])
+    const questionVotes = await getDocs(collection(firestore, 'communityVotes', encodeURIComponent(['courseQuestion', '', question.id].join(':')), 'voters'))
+    const reviewVotes = await getDocs(collection(firestore, 'communityVotes', encodeURIComponent(['courseReview', '', otherReview.id].join(':')), 'voters'))
+    const otherProfile = await getDoc(doc(firestore, 'users', 'other-student'))
+    const otherReviewDoc = await getDoc(doc(firestore, 'courseReviews', otherReview.id))
+    remaining = {
+      studentProfile: studentProfile.exists(),
+      privateCounts: privateCollections.map(snapshot => snapshot.size),
+      content: [
+        courseReview.exists(), courseResponse.exists(), professorReviewDoc.exists(),
+        professorResponse.exists(), questionDoc.exists(), answerDoc.exists(),
+        teacherAnswerDoc.exists(), guideDoc.exists(),
+      ],
+      reportData: [reportDoc.exists(), reportNotification.exists(), teacherNotification.exists()],
+      voteCounts: [questionVotes.size, reviewVotes.size],
+      otherData: [otherProfile.exists(), otherReviewDoc.exists()],
+    }
+  })
+  assert.equal(remaining.studentProfile, false)
+  assert.deepEqual(remaining.privateCounts, [0, 0, 0, 0, 0, 0, 0, 0])
+  assert.deepEqual(remaining.content, [false, false, false, false, false, false, false, false])
+  assert.deepEqual(remaining.reportData, [false, false, false])
+  assert.deepEqual(remaining.voteCounts, [0, 0])
+  assert.deepEqual(remaining.otherData, [true, true])
 })
 
 test('email is optional, normalized, unique and can be added before a later login', async () => {

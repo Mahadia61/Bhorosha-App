@@ -2,8 +2,7 @@ import { teachesCourse } from '@/features/courses'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native'
 import { Redirect, useLocalSearchParams } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { AppBottomNav, Card, Empty, PageHeader, Screen, SearchBar } from '@/components/ui'
+import { Card, Empty, PageHeader, Screen, SearchBar } from '@/components/ui'
 import { colors } from '@/components/ui/theme'
 import { courseService } from '@/features/courses'
 import { questionService } from '@/features/questions'
@@ -57,7 +56,6 @@ export default function TeacherCourseDetail() {
   const [questionSort, setQuestionSort] = useState<QuestionSort>('recent')
   const [adviceSearch, setAdviceSearch] = useState('')
   const [adviceSort, setAdviceSort] = useState<AdviceSort>('recent')
-  const [liked, setLiked] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -107,8 +105,6 @@ export default function TeacherCourseDetail() {
     .filter(guide => `${guide.title} ${guide.text} ${guide.resources ?? ''}`.toLowerCase().includes(adviceSearch.toLowerCase()))
     .sort((left, right) => adviceSort === 'title' ? left.title.localeCompare(right.title) : right.createdAt - left.createdAt), [guides, adviceSearch, adviceSort])
 
-  const toggleLike = (key: string) => setLiked(current => ({ ...current, [key]: !current[key] }))
-
   if (profile?.role !== 'teacher') return <Redirect href="/" />
   if (loading) return <Screen><View className="flex-1 items-center justify-center"><Text className="text-muted">Loading course...</Text></View></Screen>
   if (!course) return <Screen><Empty title="Course unavailable" body="This course could not be loaded." /></Screen>
@@ -127,7 +123,7 @@ export default function TeacherCourseDetail() {
           <View className="flex-1"><SearchBar pill value={reviewSearch} onChangeText={setReviewSearch} placeholder="Search reviews..." /></View>
           <SortMenu value={reviewSort} onChange={setReviewSort} options={[{ key: 'recent', label: 'Most recent' }, { key: 'highest', label: 'Highest rated' }]} />
         </View>
-        {visibleReviews.length ? visibleReviews.map(review => <TeacherReviewCard key={review.id} review={review} course={course} liked={liked[review.id]} onLike={() => toggleLike(review.id)} />) : <Empty title="No reviews yet" body="Student reviews for this course will appear here." />}
+        {visibleReviews.length ? visibleReviews.map(review => <TeacherReviewCard key={review.id} review={review} course={course} />) : <Empty title="No reviews yet" body="Student reviews for this course will appear here." />}
       </> : null}
 
       {tab === 'questions' ? <>
@@ -136,7 +132,7 @@ export default function TeacherCourseDetail() {
           <SortMenu value={questionFilter} onChange={setQuestionFilter} options={[{ key: 'all', label: 'All Questions' }, { key: 'unanswered', label: 'Unanswered' }, { key: 'answered', label: 'Answered' }]} />
           <SortMenu value={questionSort} onChange={setQuestionSort} options={[{ key: 'recent', label: 'Most recent' }, { key: 'answers', label: 'Most answers' }]} />
         </View>
-        {visibleQuestions.length ? visibleQuestions.map(question => <TeacherQuestionCard key={question.id} question={question} course={course} liked={liked[question.id]} onLike={() => toggleLike(question.id)} onAnswered={load} />) : <Empty title="No questions yet" body="Questions for this course will appear here." />}
+        {visibleQuestions.length ? visibleQuestions.map(question => <TeacherQuestionCard key={question.id} question={question} course={course} onAnswered={load} />) : <Empty title="No questions yet" body="Questions for this course will appear here." />}
       </> : null}
 
       {tab === 'advice' ? <>
@@ -153,12 +149,9 @@ export default function TeacherCourseDetail() {
           <View className="flex-1"><SearchBar pill value={adviceSearch} onChangeText={setAdviceSearch} placeholder="Search advice..." /></View>
           <SortMenu value={adviceSort} onChange={setAdviceSort} options={[{ key: 'recent', label: 'Most recent' }, { key: 'title', label: 'Title' }]} />
         </View>
-        {visibleGuides.length ? visibleGuides.map(guide => <TeacherAdviceCard key={guide.id} guide={guide} liked={liked[guide.id]} onLike={() => toggleLike(guide.id)} />) : <Empty title="No advice yet" body="Senior advice shared for this course will appear here." />}
+        {visibleGuides.length ? visibleGuides.map(guide => <TeacherAdviceCard key={guide.id} guide={guide} />) : <Empty title="No advice yet" body="Senior advice shared for this course will appear here." />}
       </> : null}
     </ScrollView>
-    <SafeAreaView edges={['bottom']} className="bg-white dark:bg-slate-900">
-      <AppBottomNav role="teacher" active="courses" />
-    </SafeAreaView>
   </Screen>
 }
 

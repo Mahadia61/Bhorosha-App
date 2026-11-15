@@ -1,12 +1,15 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useRef, useState, type PropsWithChildren, type ReactNode } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
   type TextInputProps,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -19,6 +22,7 @@ import {
 import { colors, roleTabs, tabBarStyle, type TabItem } from "./theme";
 import { useRoleChrome } from "./useRoleChrome";
 import type { Role } from "@/lib/types/types";
+import type { AppNotification } from "@/types";
 import { useApp } from "@/providers/AppProvider";
 
 export { colors, roleTabs, tabBarStyle } from "./theme";
@@ -30,8 +34,11 @@ export function Screen({
   const { profile } = useApp()
   const segments = useSegments()
   const hasPersistentHeader = !!profile && !segments.some(segment => String(segment) === '(auth)')
+  const hasBottomNavigation = segments.some(segment =>
+    ['(student-tabs)', '(teacher-tabs)', '(admin-tabs)', '(teacher)', '(tabs)'].includes(String(segment)),
+  )
   return (
-    <SafeAreaView edges={edges ?? (hasPersistentHeader ? ["left", "right", "bottom"] : ["top"])} className="flex-1 bg-surface dark:bg-slate-950">
+    <SafeAreaView edges={edges ?? (hasPersistentHeader ? (hasBottomNavigation ? ["left", "right"] : ["left", "right", "bottom"]) : ["top"])} className="flex-1 bg-surface dark:bg-slate-950">
       {children}
     </SafeAreaView>
   );
@@ -66,12 +73,14 @@ export function Button({
   disabled,
   loading,
   className = "",
+  textClassName = "",
 }: PropsWithChildren<{
   onPress: () => void;
   variant?: "primary" | "outline" | "danger";
   disabled?: boolean;
   loading?: boolean;
   className?: string;
+  textClassName?: string;
 }>) {
   const tone =
     variant === "primary"
@@ -92,7 +101,7 @@ export function Button({
         />
       ) : (
         <Text
-          className={`font-semibold ${variant === "outline" ? "text-ink dark:text-white" : "text-white"}`}
+          className={`text-center font-semibold ${variant === "outline" ? "text-ink dark:text-white" : "text-white"} ${textClassName}`}
         >
           {children}
         </Text>
@@ -216,41 +225,267 @@ export function AvatarButton({
   onPress: () => void;
   label: string;
 }) {
-  const { isDark } = useApp()
+  return <RoleProfileMenuButton label={label} onPress={onPress} />;
+}
+
+function RoleProfileMenuButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const chrome = useRoleChrome()
+  const { signOut } = useApp()
+  const anchorRef = useRef<View>(null)
+  const [visible, setVisible] = useState(false)
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 220, maxHeight: 420 })
+  const { width, height } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
+
+  const openMenu = () => {
+    anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
+      const menuWidth = Math.min(240, width - 16)
+      const menuHeight = Math.min(420, height - insets.top - insets.bottom - 16)
+      const left = Math.max(8, Math.min(x + anchorWidth - menuWidth, width - menuWidth - 8))
+      const below = y + anchorHeight + 6
+      const top = below + menuHeight <= height - insets.bottom - 8
+        ? below
+        : y - menuHeight - 6 >= insets.top + 8
+          ? y - menuHeight - 6
+          : Math.max(insets.top + 8, Math.min(below, height - insets.bottom - menuHeight - 8))
+      setPosition({ left, top, width: menuWidth, maxHeight: menuHeight })
+      setVisible(true)
+    })
+  }
+
+  const profileHref = String(chrome.profileHref)
+  const items: { label: string; icon: keyof typeof Feather.glyphMap; href?: Href; action?: () => void }[] = []
+  if (chrome.role === "student") {
+    items.push(
+      { label: "Edit Profile", icon: "edit-2", href: `${profileHref}?section=edit` as Href },
+      { label: "Settings", icon: "settings", href: `${profileHref}?section=settings` as Href },
+      { label: "Delete Account", icon: "trash-2", href: `${profileHref}?section=delete` as Href },
+    )
+  } else if (chrome.role === "teacher") {
+    items.push(
+      { label: "Settings", icon: "settings", href: "/teacher-settings" },
+    )
+  } else {
+    items.push(
+      { label: "Edit Profile", icon: "edit-2", href: "/admin-profile?section=edit" },
+      { label: "Settings", icon: "settings", href: "/admin-settings" },
+    )
+  }
+  items.push({
+    label: "Sign out",
+    icon: "log-out",
+    action: () => {
+      void signOut().then(() => router.replace("/welcome")).catch(reason => {
+        Alert.alert("Could not sign out", reason instanceof Error ? reason.message : "Please try again.")
+      })
+    },
+  })
+
+  const selectItem = (item: typeof items[number]) => {
+    setVisible(false)
+    if (item.href) router.push(item.href)
+    else item.action?.()
+  }
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      className="h-11 w-11 items-center justify-center rounded-full border border-line bg-white dark:border-slate-800 dark:bg-slate-900"
-    >
-      <Feather name="user" size={20} color={isDark ? "#E2E8F0" : colors.ink} />
-    </Pressable>
-  );
+    <>
+      <View ref={anchorRef} collapsable={false}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          onPress={openMenu}
+          className="h-11 w-11 items-center justify-center rounded-full border border-line bg-white dark:border-slate-800 dark:bg-slate-900"
+        >
+          <Feather name="user" size={20} color={chrome.isDark ? "#E2E8F0" : colors.ink} />
+        </Pressable>
+      </View>
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setVisible(false)}>
+        <View className="flex-1">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close profile options"
+            onPress={() => setVisible(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <ScrollView
+            className="absolute overflow-hidden rounded-2xl border border-line bg-white dark:border-slate-700 dark:bg-slate-900"
+            style={{
+              left: position.left,
+              top: position.top,
+              width: position.width,
+              maxHeight: position.maxHeight,
+              elevation: 12,
+              shadowColor: "#000",
+              shadowOpacity: 0.2,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 8 },
+            }}
+            contentContainerStyle={{ paddingVertical: 6 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {items.map(item => (
+              <Pressable
+                key={item.label}
+                accessibilityRole="button"
+                onPress={() => selectItem(item)}
+                className={`flex-row items-center gap-3 px-4 py-3 ${item.label === "Sign out" ? "border-t border-line dark:border-slate-700" : ""}`}
+              >
+                <Feather
+                  name={item.icon}
+                  size={17}
+                  color={item.label === "Sign out" ? "#E11D48" : chrome.isDark ? "#CBD5E1" : colors.ink}
+                />
+                <Text className={`text-sm font-medium ${item.label === "Sign out" ? "text-rose-600" : "text-ink dark:text-white"}`}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+    </>
+  )
 }
 
 export function AppRoleActions({ visible }: { visible: boolean }) {
   const chrome = useRoleChrome()
   const insets = useSafeAreaInsets()
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   if (!visible || !chrome.profile) return null
 
+  const openNotification = async (item: AppNotification) => {
+    try {
+      await chrome.markNotificationRead(item)
+      setNotificationsOpen(false)
+      if (chrome.role === "student" && item.courseId) {
+        router.push(`/course/${item.courseId}?section=questions` as never)
+      } else if (chrome.role === "teacher" && item.questionId) {
+        router.push("/(teacher-tabs)/questions")
+      } else if (chrome.role === "admin" && item.reportId) {
+        router.push("/(admin-tabs)/moderation")
+      }
+    } catch (reason) {
+      Alert.alert(
+        "Could not update notification",
+        reason instanceof Error ? reason.message : "Please try again.",
+      )
+    }
+  }
+
   return (
-    <View
-      style={{ height: 56 + insets.top, paddingTop: insets.top }}
-      className="flex-row items-center justify-end gap-3 border-b border-line bg-surface px-5 dark:border-slate-800 dark:bg-slate-950"
-    >
-      <RoundIconButton
-        icon="bell"
-        label="Open notifications"
-        unread={chrome.unread}
-        onPress={() => router.push(chrome.notificationHref)}
-      />
-      <RoundIconButton
-        icon="user"
-        label="Open profile"
-        onPress={() => router.push(chrome.profileHref)}
-      />
-    </View>
+    <>
+      <View
+        style={{ height: 56 + insets.top, paddingTop: insets.top }}
+        className="flex-row items-center justify-end gap-3 border-b border-line bg-surface px-5 dark:border-slate-800 dark:bg-slate-950"
+      >
+        <RoundIconButton
+          icon="bell"
+          label="Open notifications"
+          unread={chrome.unread}
+          onPress={() => setNotificationsOpen(true)}
+        />
+        <RoleProfileMenuButton label="Open profile options" onPress={() => router.push(chrome.profileHref)} />
+      </View>
+      <Modal
+        visible={notificationsOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setNotificationsOpen(false)}
+      >
+        <View className="flex-1">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close notifications"
+            onPress={() => setNotificationsOpen(false)}
+            style={StyleSheet.absoluteFill}
+            className="bg-black/40"
+          />
+          <View
+            style={{
+              position: "absolute",
+              top: insets.top + 62,
+              right: 16,
+              width: 320,
+              maxWidth: "90%",
+              maxHeight: "70%",
+              elevation: 12,
+              shadowColor: "#000",
+              shadowOpacity: 0.24,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 8 },
+            }}
+            className="overflow-hidden rounded-2xl border border-line bg-white dark:border-slate-700 dark:bg-slate-900"
+          >
+            <View className="flex-row items-center justify-between border-b border-line px-4 py-3 dark:border-slate-800">
+              <Text className="text-xs font-extrabold tracking-widest text-brand">
+                NOTIFICATIONS
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close notifications"
+                onPress={() => setNotificationsOpen(false)}
+                hitSlop={10}
+              >
+                <Feather name="x" size={18} color={chrome.isDark ? "#CBD5E1" : colors.muted} />
+              </Pressable>
+            </View>
+            {chrome.notificationsError ? (
+              <View className="px-4 py-6">
+                <Text className="text-center text-xs font-semibold text-rose-600">
+                  Notifications unavailable
+                </Text>
+                <Text className="mt-1 text-center text-[11px] leading-4 text-muted">
+                  {chrome.notificationsError}
+                </Text>
+              </View>
+            ) : chrome.notifications.length ? (
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {chrome.notifications.slice(0, 5).map((item, index) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => { void openNotification(item) }}
+                    className={`flex-row items-start px-4 py-3 ${index ? "border-t border-line dark:border-slate-800" : ""} ${item.read ? "opacity-75" : ""}`}
+                  >
+                    <View className="mr-3 mt-0.5 h-7 w-7 items-center justify-center rounded-full bg-[#E8F0FE] dark:bg-slate-800">
+                      <Feather
+                        name={item.courseId ? "book-open" : "message-circle"}
+                        size={14}
+                        color={colors.brand}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-xs font-bold leading-4 text-ink dark:text-white">
+                        {item.title}
+                      </Text>
+                      <Text
+                        numberOfLines={2}
+                        className="mt-1 text-[11px] leading-4 text-muted dark:text-slate-400"
+                      >
+                        {item.body}
+                      </Text>
+                    </View>
+                    {!item.read ? (
+                      <View className="ml-2 mt-1.5 h-2 w-2 rounded-full bg-brand" />
+                    ) : null}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : (
+              <View className="items-center px-5 py-8">
+                <Feather name="bell" size={22} color={colors.muted} />
+                <Text className="mt-2 text-sm font-semibold text-ink dark:text-white">
+                  You're all caught up
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   )
 }
 

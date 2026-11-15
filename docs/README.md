@@ -2,7 +2,7 @@
 
 This is the normalized relational ER diagram for Bhorosha's academic community
 data: accounts, teacher profiles, courses and offerings, reviews, Q&A, guides,
-moderation, notifications, and activity.
+community votes, moderation, notifications, and activity.
 
 > **Current implementation:** Bhorosha uses Cloud Firestore. This diagram is a
 > logical SQL design, not a deployed database schema. Firestore mirrors and
@@ -26,7 +26,6 @@ erDiagram
     boolean active
     boolean email_verified
     boolean dark_mode
-    int warning_count
     datetime created_at
     datetime updated_at
   }
@@ -172,6 +171,15 @@ erDiagram
     string resources "Nullable"
     datetime created_at
   }
+  COMMUNITY_VOTE {
+    string voter_id PK "Opaque identifier"
+    string user_id FK "Private voter identity"
+    string target_type
+    string target_id
+    string target_key "Unique per user"
+    string question_id "Nullable; answer context"
+    string vote
+  }
   REPORT {
     string report_id PK
     string content_type
@@ -270,6 +278,7 @@ erDiagram
   QUESTION_ANSWER ||--o| ANSWER_OWNERSHIP : private_owner
   COURSE ||--o{ COURSE_GUIDE : has_guides
   COURSE_INSTANCE o|--o{ COURSE_GUIDE : about_offering
+  APP_USER ||--o{ COMMUNITY_VOTE : casts
   APP_USER ||--o{ REPORT : reports
   APP_USER ||--o{ REPORT : is_reported
   COURSE_INSTANCE o|--o{ REPORT : related_offering
@@ -300,6 +309,11 @@ erDiagram
 - `REVIEW_OWNERSHIP`, `QUESTION_OWNERSHIP`, and `ANSWER_OWNERSHIP` hold private
   author identity separately from public community content. This keeps user
   IDs, emails, student IDs, and batches out of public content records.
+- `COMMUNITY_VOTE` uses an opaque voter ID and private user identity. Its
+  polymorphic target is one course review, teacher review, course question,
+  answer, or course guide; only aggregate totals and the current user's vote
+  state are shown in the UI. Enforce `UQ(user_id, target_key)` so each user has
+  at most one vote per target.
 - `COURSE_TEACHER`, `COURSE_TAG_LINK`, `COURSE_REVIEW_RATING`, and `REVIEW_TAG`
   resolve many-to-many or multivalued data into normalized rows.
 - Each notification must have exactly one recipient: either

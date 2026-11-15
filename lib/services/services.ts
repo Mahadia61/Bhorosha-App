@@ -1,9 +1,9 @@
 import { EmailAuthProvider, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword } from 'firebase/auth'
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, where, writeBatch, type Unsubscribe } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction, setDoc, where, writeBatch, type DocumentReference, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { auth, db, firebaseEnabled } from '../firebase/firebase'
 import { sanitizeCommunityText } from '../utils/content-filter'
 import { adminTeacherProfiles, courseTeacherAssignments, ensureTeacherAccount, linkTeacherAccount, saveTeacherProfile, teacherIdentityIds, teacherProfiles, teachesCourse } from './teacher-profiles'
-import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, AppNotificationCategory, ContentType, Course, CourseGuide, CourseInstance, CourseQuestion, CourseStatus, CourseType, ModerationAppeal, ModerationHistoryItem, Professor, ProfessorReview, Profile, QuestionAnswer, QuestionCategory, RatingMap, Report, ReportAction, ReportReason, Review, Role, TeacherResponse } from '../types/types'
+import type { AcademicLevel, AcademicTerm, ActivityItem, AppNotification, AppNotificationCategory, CommunityVoteState, CommunityVoteTarget, CommunityVoteValue, ContentType, Course, CourseGuide, CourseInstance, CourseQuestion, CourseStatus, CourseType, ModerationAppeal, ModerationHistoryItem, Professor, ProfessorReview, Profile, QuestionAnswer, QuestionCategory, RatingMap, Report, ReportAction, ReportReason, Review, Role, TeacherResponse } from '../types/types'
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const isStudentEmail = (email: string) => /^u\d+@student\.cuet\.ac\.bd$/.test(email)
@@ -28,6 +28,29 @@ function academicPosition(level: string | null | undefined, term: string | null 
 const backendUrl = () => process.env.EXPO_PUBLIC_BACKEND_URL?.replace(/\/$/, '') ?? ''
 const QUERY_LIMITS = { courses: 100, reviews: 50, questions: 50, guides: 50, notifications: 100, moderation: 100 } as const
 const legacyInstanceId = (courseId: string) => `${courseId}--legacy`
+const communityVoteKey = (contentType: CommunityVoteTarget, contentId: string, questionId?: string) =>
+  encodeURIComponent([contentType, questionId ?? '', contentId].join(':'))
+
+async function deleteDocumentRefGroups(firestore: Firestore, groups: DocumentReference[][]) {
+  const deletedPaths = new Set<string>()
+  let batch = writeBatch(firestore)
+  let batchSize = 0
+  for (const group of groups) {
+    const references = group.filter(reference => !deletedPaths.has(reference.path))
+    if (!references.length) continue
+    if (batchSize + references.length > 8) {
+      await batch.commit()
+      batch = writeBatch(firestore)
+      batchSize = 0
+    }
+    references.forEach(reference => {
+      batch.delete(reference)
+      deletedPaths.add(reference.path)
+    })
+    batchSize += references.length
+  }
+  if (batchSize) await batch.commit()
+}
 
 function adminNotificationCategory(data: Record<string, unknown>): AppNotificationCategory {
   const category = data.category
@@ -132,9 +155,12 @@ const professorReviewFrom = (id: string, data: Record<string, unknown>): Profess
   anonymous: data.anonymous !== false, displayName: typeof data.displayName === 'string' ? data.displayName : null, createdAt: Number(data.createdAt ?? 0),
 })
 
-const answerFrom = (id: string, data: Record<string, unknown>): QuestionAnswer => ({
-  id, ...(typeof data.questionId === 'string' ? { questionId: data.questionId } : {}), ...(typeof data.courseId === 'string' ? { courseId: data.courseId } : {}), ...(typeof data.courseInstanceId === 'string' ? { courseInstanceId: data.courseInstanceId } : {}), authorName: String(data.authorName ?? 'A student'), authorRole: data.authorRole === 'teacher' ? 'teacher' : 'student', text: String(data.text ?? ''), createdAt: Number(data.createdAt ?? 0),
-})
+const answerFrom = (id: string, data: Record<string, unknown>): QuestionAnswer => {
+  const authorRole = data.authorRole === 'teacher' ? 'teacher' : 'student'
+  return {
+    id, ...(typeof data.questionId === 'string' ? { questionId: data.questionId } : {}), ...(typeof data.courseId === 'string' ? { courseId: data.courseId } : {}), ...(typeof data.courseInstanceId === 'string' ? { courseInstanceId: data.courseInstanceId } : {}), ...(typeof data.parentAnswerId === 'string' ? { parentAnswerId: data.parentAnswerId } : {}), authorName: authorRole === 'teacher' ? String(data.authorName ?? 'Teacher') : 'Student', authorRole, text: String(data.text ?? ''), createdAt: Number(data.createdAt ?? 0),
+  }
+}
 
 const questionFrom = (id: string, data: Record<string, unknown>): CourseQuestion => ({
   id, courseId: String(data.courseId ?? ''), ...(typeof data.courseInstanceId === 'string' ? { courseInstanceId: data.courseInstanceId } : {}), category: ['Course Content', 'Course Related', 'Exam', 'Assignment', 'Project', 'Registration', 'Academic', 'Advising', 'Other'].includes(String(data.category)) ? String(data.category) as QuestionCategory : 'Other', text: String(data.text ?? ''), anonymous: data.anonymous !== false, displayName: typeof data.displayName === 'string' ? data.displayName : null, createdAt: Number(data.createdAt ?? 0), answers: [],
@@ -403,6 +429,123 @@ export const services = {
   async signOut() {
     const { auth: firebaseAuth } = requireFirebase()
     await firebaseSignOut(firebaseAuth)
+  },
+
+  async deleteStudentAccount(password: string) {
+    const { auth: firebaseAuth } = requireFirebase()
+    const currentUser = firebaseAuth.currentUser
+    if (!currentUser?.email) throw new Error('Sign in again before deleting your account.')
+    if (!password) throw new Error('Enter your password to confirm account deletion.')
+    const profile = await firebaseProfile(currentUser.uid)
+    if (profile?.role !== 'student') throw new Error('Only student accounts can be deleted here.')
+    const credential = EmailAuthProvider.credential(currentUser.email, password)
+    try {
+      await reauthenticateWithCredential(currentUser, credential)
+    } catch (reason) {
+      const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
+      if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password')) {
+        throw new Error('The password is incorrect. Check it and try again.')
+      }
+      if (code.includes('auth/too-many-requests')) {
+        throw new Error('Too many password attempts. Wait a little and try again.')
+      }
+      throw reason instanceof Error ? reason : new Error('Could not verify your password.')
+    }
+
+    await this.deleteStudentAccountData(currentUser.uid)
+    await deleteUser(currentUser)
+  },
+
+  async deleteStudentAccountData(userId: string) {
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
+    if (firebaseAuth.currentUser?.uid !== userId) throw new Error('Sign in again before deleting account data.')
+    const profile = await firebaseProfile(userId)
+    if (profile?.role !== 'student') throw new Error('Only student account data can be deleted here.')
+
+    const userCollection = (name: string) => collection(firestore, 'users', userId, name)
+    const [courseReviewMirrors, courseReviewIndexes, professorReviewMirrors, questionMirrors, answerMirrors, guideMirrors, activities, ownVotes, reports] = await Promise.all([
+      getDocs(userCollection('courseReviews')),
+      getDocs(userCollection('courseReviewIndex')),
+      getDocs(userCollection('professorReviews')),
+      getDocs(userCollection('questions')),
+      getDocs(userCollection('answers')),
+      getDocs(userCollection('guides')),
+      getDocs(userCollection('activity')),
+      getDocs(userCollection('communityVotes')),
+      getDocs(query(collection(firestore, 'reports'), where('reporterId', '==', userId))),
+    ])
+
+    const [questionAnswerLists, questionNoticeLists, teacherNoticeLists, courseResponseLists, professorResponseLists] = await Promise.all([
+      Promise.all(questionMirrors.docs.map(item => getDocs(collection(firestore, 'courseQuestions', item.id, 'answers')))),
+      Promise.all(questionMirrors.docs.map(item => {
+        const notificationKey = item.data().notificationKey
+        if (typeof notificationKey !== 'string') return Promise.resolve(null)
+        return getDocs(query(
+          collection(firestore, 'courseQuestionNotifications'),
+          where('questionId', '==', item.id),
+          where('notificationKey', '==', notificationKey),
+        ))
+      })),
+      Promise.all(questionMirrors.docs.map(item => getDocs(query(
+        collection(firestore, 'notifications'),
+        where('questionId', '==', item.id),
+      )))),
+      Promise.all(courseReviewMirrors.docs.map(item => getDocs(collection(firestore, 'courseReviews', item.id, 'teacherResponses')))),
+      Promise.all(professorReviewMirrors.docs.map(item => getDocs(collection(firestore, 'professorReviews', item.id, 'teacherResponses')))),
+    ])
+
+    const questionAnswerRefs = questionAnswerLists.flatMap(snapshot => snapshot.docs.map(item => item.ref))
+    const userAnswerMirrorByPath = new Map<string, DocumentReference>()
+    for (const item of answerMirrors.docs) {
+      const questionId = item.data().questionId
+      if (typeof questionId === 'string') {
+        userAnswerMirrorByPath.set(`courseQuestions/${questionId}/answers/${item.id}`, item.ref)
+      }
+    }
+    const answerDeleteGroups = questionAnswerRefs.map(reference => {
+      const mirror = userAnswerMirrorByPath.get(reference.path)
+      if (mirror) userAnswerMirrorByPath.delete(reference.path)
+      return mirror ? [reference, mirror] : [reference]
+    })
+    for (const [path, mirror] of userAnswerMirrorByPath) {
+      const parts = path.split('/')
+      answerDeleteGroups.push([doc(firestore, 'courseQuestions', parts[1], 'answers', parts[3]), mirror])
+    }
+
+    const ownVoteDeleteGroups = ownVotes.docs.map(item => {
+      const voterId = item.data().voterId
+      if (typeof voterId !== 'string') throw new Error(`Vote record ${item.id} is missing its voter reference.`)
+      return [
+        doc(firestore, 'communityVotes', item.id, 'voters', voterId),
+        item.ref,
+      ]
+    })
+    await deleteDocumentRefGroups(firestore, ownVoteDeleteGroups)
+
+    await deleteDocumentRefGroups(firestore, [
+      ...courseResponseLists.flatMap(snapshot => snapshot.docs.map(item => [item.ref])),
+      ...professorResponseLists.flatMap(snapshot => snapshot.docs.map(item => [item.ref])),
+    ])
+    await deleteDocumentRefGroups(firestore, answerDeleteGroups)
+
+    await deleteDocumentRefGroups(firestore, [
+      ...questionNoticeLists.flatMap(snapshot => snapshot?.docs.map(item => [item.ref]) ?? []),
+      ...teacherNoticeLists.flatMap(snapshot => snapshot.docs.map(item => [item.ref])),
+      ...reports.docs.map(item => [item.ref, doc(firestore, 'adminNotifications', item.id)]),
+    ])
+
+    await deleteDocumentRefGroups(firestore, [
+      ...courseReviewMirrors.docs.map(item => [doc(firestore, 'courseReviews', item.id), item.ref]),
+      ...professorReviewMirrors.docs.map(item => [doc(firestore, 'professorReviews', item.id), item.ref]),
+      ...questionMirrors.docs.map(item => [doc(firestore, 'courseQuestions', item.id), item.ref]),
+      ...guideMirrors.docs.map(item => [doc(firestore, 'courseGuides', item.id), item.ref]),
+    ])
+    await deleteDocumentRefGroups(firestore, [
+      ...courseReviewIndexes.docs.map(item => [item.ref]),
+      ...activities.docs.map(item => [item.ref]),
+    ])
+
+    await deleteDoc(doc(firestore, 'users', userId))
   },
 
   async updateProfile(profile: Profile) {
@@ -870,19 +1013,123 @@ export const services = {
     const { db: firestore } = requireFirebase()
     await deleteDoc(doc(firestore, 'courseGuides', guideId))
   },
-  async addQuestionAnswer(questionId: string, author: Profile, text: string) {
+  subscribeCommunityVotes(
+    contentType: CommunityVoteTarget,
+    contentId: string,
+    onChange: (state: CommunityVoteState) => void,
+    onError: (reason: Error) => void,
+    questionId?: string,
+  ): Unsubscribe {
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
+    const userId = firebaseAuth.currentUser?.uid
+    if (!userId) {
+      onError(new Error('Sign in before voting.'))
+      return () => {}
+    }
+    if (contentType === 'answer' && !questionId) {
+      onError(new Error('Question ID is required to load answer votes.'))
+      return () => {}
+    }
+
+    const key = communityVoteKey(contentType, contentId, questionId)
+    const voters = new Map<string, CommunityVoteValue>()
+    let currentVoterId: string | null = null
+    const publish = () => {
+      let likes = 0
+      let dislikes = 0
+      for (const vote of voters.values()) {
+        if (vote === 'like') likes += 1
+        else dislikes += 1
+      }
+      onChange({
+        likes,
+        dislikes,
+        currentVote: currentVoterId ? voters.get(currentVoterId) ?? null : null,
+      })
+    }
+    const unsubscribeVoters = onSnapshot(
+      collection(firestore, 'communityVotes', key, 'voters'),
+      snapshot => {
+        voters.clear()
+        snapshot.docs.forEach(item => {
+          const value = item.data().vote
+          if (value === 'like' || value === 'dislike') voters.set(item.id, value)
+        })
+        publish()
+      },
+      reason => onError(reason instanceof Error ? reason : new Error('Unable to load votes.')),
+    )
+    const unsubscribeOwnVote = onSnapshot(
+      doc(firestore, 'users', userId, 'communityVotes', key),
+      snapshot => {
+        const voterId = snapshot.data()?.voterId
+        currentVoterId = typeof voterId === 'string' ? voterId : null
+        publish()
+      },
+      reason => onError(reason instanceof Error ? reason : new Error('Unable to load your vote.')),
+    )
+    return () => {
+      unsubscribeVoters()
+      unsubscribeOwnVote()
+    }
+  },
+  async toggleCommunityVote(
+    contentType: CommunityVoteTarget,
+    contentId: string,
+    vote: CommunityVoteValue,
+    questionId?: string,
+  ) {
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
+    const userId = firebaseAuth.currentUser?.uid
+    if (!userId) throw new Error('Sign in before voting.')
+    if (contentType === 'answer' && !questionId) {
+      throw new Error('Question ID is required to vote on an answer.')
+    }
+
+    const key = communityVoteKey(contentType, contentId, questionId)
+    const ownVoteRef = doc(firestore, 'users', userId, 'communityVotes', key)
+    const newVoterRef = doc(collection(firestore, 'communityVotes', key, 'voters'))
+    await runTransaction(firestore, async transaction => {
+      const ownVote = await transaction.get(ownVoteRef)
+      const currentVote = ownVote.data()
+      if (currentVote && typeof currentVote.voterId === 'string') {
+        const voterRef = doc(firestore, 'communityVotes', key, 'voters', currentVote.voterId)
+        if (currentVote.vote === vote) {
+          transaction.delete(voterRef)
+          transaction.delete(ownVoteRef)
+          return
+        }
+        const existingVoter = await transaction.get(voterRef)
+        if (!existingVoter.exists()) throw new Error('Your saved vote is missing. Refresh and try again.')
+        transaction.set(voterRef, { contentKey: key, contentType, contentId, ...(questionId ? { questionId } : {}), vote })
+        transaction.set(ownVoteRef, { voterId: currentVote.voterId, vote })
+        return
+      }
+
+      transaction.set(newVoterRef, { contentKey: key, contentType, contentId, ...(questionId ? { questionId } : {}), vote })
+      transaction.set(ownVoteRef, { voterId: newVoterRef.id, vote })
+    })
+  },
+  async addQuestionAnswer(questionId: string, author: Profile, text: string, parentAnswerId?: string) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before answering a question.')
     const answerText = sanitizeCommunityText(text.trim())
     if (!answerText) throw new Error('Answer text is required.')
     const question = await getDoc(doc(firestore, 'courseQuestions', questionId))
     if (!question.exists()) throw new Error('Question no longer exists.')
+    if (parentAnswerId) {
+      const parentAnswer = await getDoc(doc(firestore, 'courseQuestions', questionId, 'answers', parentAnswerId))
+      if (!parentAnswer.exists()) throw new Error('The reply you are responding to no longer exists.')
+      if (author.role === 'student' && parentAnswer.data().authorRole === 'teacher') {
+        throw new Error('Only a teacher can reply to a teacher answer.')
+      }
+    }
     const answerRef = doc(collection(firestore, 'courseQuestions', questionId, 'answers'))
     const createdAt = Date.now()
-    const answer = { authorRole: author.role === 'teacher' ? 'teacher' : 'student', authorName: author.role === 'teacher' ? author.name : 'A student', text: answerText, createdAt }
+    const answer = { ...(parentAnswerId ? { parentAnswerId } : {}), authorRole: author.role === 'teacher' ? 'teacher' : 'student', authorName: author.role === 'teacher' ? author.name : 'Student', text: answerText, createdAt }
     const batch = writeBatch(firestore)
     batch.set(answerRef, answer)
-    batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'answers', answerRef.id), { id: answerRef.id, questionId, courseId: String(question.data().courseId ?? ''), authorRole: answer.authorRole, createdAt })
+    batch.set(doc(firestore, 'users', firebaseAuth.currentUser.uid, 'answers', answerRef.id), { id: answerRef.id, questionId, courseId: String(question.data().courseId ?? ''), ...(parentAnswerId ? { parentAnswerId } : {}), authorRole: answer.authorRole, createdAt })
     if (author.role === 'teacher') {
       const notificationKey = question.data().notificationKey
       if (typeof notificationKey === 'string') batch.set(doc(firestore, 'courseQuestionNotifications', answerRef.id), {

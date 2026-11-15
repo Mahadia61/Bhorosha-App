@@ -100,12 +100,15 @@ export type Professor = { id: string; name: string; department: string; designat
 
 export type ProfessorReview = { id: string; professorId: string; text: string; rating: number; aspects?: Record<string, number>; tags?: string[]; anonymous: boolean; displayName: string | null; createdAt: number; responses?: TeacherResponse[] }
 
-export type QuestionAnswer = { id: string; questionId?: string; courseId?: string; courseInstanceId?: string; authorName: string; authorRole: 'student' | 'teacher'; text: string; createdAt: number }
+export type QuestionAnswer = { id: string; questionId?: string; courseId?: string; courseInstanceId?: string; parentAnswerId?: string; authorName: string; authorRole: 'student' | 'teacher'; text: string; createdAt: number }
 
 export type CourseQuestion = { id: string; courseId: string; courseInstanceId?: string; category: QuestionCategory; text: string; anonymous: boolean; displayName?: string | null; createdAt: number; answers?: QuestionAnswer[] }
 
 export type CourseGuide = { id: string; courseId: string; courseInstanceId?: string; category?: string; title: string; text: string; resources?: string; anonymous?: boolean; displayName?: string | null; createdAt: number }
 export type ContentType = 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer' | 'courseGuide' | 'comment'
+export type CommunityVoteTarget = 'courseReview' | 'professorReview' | 'courseQuestion' | 'answer' | 'courseGuide'
+export type CommunityVoteValue = 'like' | 'dislike'
+export type CommunityVoteState = { likes: number; dislikes: number; currentVote: CommunityVoteValue | null }
 export type ReportReason = 'Spam' | 'Harassment' | 'Inappropriate content' | 'False information' | 'Offensive language' | 'Other'
 export type ReportStatus = 'pending' | 'reviewed' | 'resolved'
 export type ReportAction = 'kept' | 'removed' | 'warned' | 'suspended' | 'other'

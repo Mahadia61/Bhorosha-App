@@ -1,4 +1,5 @@
 export { CommentSection } from './CommentSection'
+export { CommunityVoteButtons } from './CommunityVoteButtons'
 export { LikeDislikeButton } from './LikeDislikeButton'
 export { ReportButton } from '@/components/moderation/ReportButton'
 export { ReportModal } from '@/components/moderation/ReportModal'

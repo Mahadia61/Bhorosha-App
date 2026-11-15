@@ -134,44 +134,23 @@ export default function StudentHome() {
         {/* ---------- "Your voice builds a better campus" banner ---------- */}
         <ImageBackground
           source={require("@/assets/images/campus-banner-bg.png")}
+          resizeMode="stretch"
           imageStyle={{ borderRadius: 20 }}
-          style={{ marginTop: 20, borderRadius: 20, overflow: "hidden" }}
+          style={{ height: 140, marginTop: 16, borderRadius: 20, overflow: "hidden" }}
         >
-          <View className="p-5" style={{ paddingRight: 96, minHeight: 176 }}>
+          <View className="px-4 py-3.5" style={{ paddingRight: 88, flex: 1, justifyContent: "center" }}>
             <Text className="text-xl font-extrabold leading-6 text-[#0B2A6B]">
               Your voice builds{"\n"}a better campus
             </Text>
-            <Text className="mt-2 text-[13px] leading-5 text-[#3E5C85]">
+            <Text className="mt-1.5 text-[13px] leading-[18px] text-[#3E5C85]">
               Share your course experience, ask questions and help others.
             </Text>
-            <Pressable
-              onPress={() => router.push("/(student-tabs)/courses")}
-              className="mt-4 flex-row items-center gap-2 self-start rounded-full bg-brand px-5 py-3"
-            >
-              <Text className="text-sm font-bold text-white">Share Now</Text>
-              <Feather name="arrow-right" size={15} color="#fff" />
-            </Pressable>
           </View>
-          <Pressable
-            onPress={() => router.push("/(student-tabs)/courses")}
-            className="absolute bottom-3 right-3 h-12 w-12 items-center justify-center rounded-2xl bg-brand"
-            style={cardShadowStyle}
-          >
-            <Feather name="message-circle" size={21} color="#fff" />
-          </Pressable>
         </ImageBackground>
 
         {/* ---------- Quick actions ---------- */}
         <SectionHeading title="Quick actions" />
         <View className="mt-3 flex-row flex-wrap justify-between">
-          <QuickActionCard
-            icon="book-open"
-            iconBg="#EAE0FB"
-            iconColor="#7C3AED"
-            label="Academic Help"
-            detail="Ask about your study plan"
-            onPress={() => router.push("/academic-assistant" as never)}
-          />
           <QuickActionCard
             icon="book-open"
             iconBg="#DCEAFE"
@@ -205,6 +184,28 @@ export default function StudentHome() {
             onPress={() => router.push("/(student-tabs)/courses")}
           />
         </View>
+
+        {/* ---------- Academic Help ---------- */}
+        <SectionHeading title="Academic Help" />
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/academic-assistant" as never)}
+          style={cardShadowStyle}
+          className="mt-3 flex-row items-center rounded-2xl border border-line bg-white p-3.5 dark:border-slate-800 dark:bg-slate-900"
+        >
+          <View className="h-11 w-11 items-center justify-center rounded-xl bg-[#EAE0FB]">
+            <Feather name="book-open" size={19} color="#7C3AED" />
+          </View>
+          <View className="ml-3 flex-1">
+            <Text className="text-[13px] font-bold text-[#172038] dark:text-white">
+              Ask about your study plan
+            </Text>
+            <Text className="mt-0.5 text-[11px] leading-4 text-[#64718B] dark:text-slate-400">
+              Get personalized academic guidance
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color="#64718B" />
+        </Pressable>
 
         {/* ---------- Popular Courses ---------- */}
         <SectionHeading

@@ -16,32 +16,22 @@ import { Button, Card, CourseCode, Empty, Stars } from "@/components/ui/ui";
 import { courseService } from "@/features/courses";
 import { questionService } from "@/features/questions";
 import { reviewService } from "@/features/reviews";
-import { userService } from "@/features/users";
 import { defaultRatings } from "@/lib/services/services";
 import { summarizeReviews } from "@/lib/utils/ai-summary";
 import type { ReviewSummary } from "@/lib/services/ai";
 import { useApp } from "@/providers/AppProvider";
 import { ReportButton } from "@/components/moderation/ReportButton";
+import { CommunityVoteButtons } from "@/components/feedback/CommunityVoteButtons";
 import { academicLabel, questionCategories } from "@/lib/utils/academic";
 import type {
-  ContentType,
   Course,
   CourseGuide,
   CourseQuestion,
+  QuestionAnswer,
   QuestionCategory,
   RatingMap,
-  ReportReason,
   Review,
 } from "@/types";
-
-const reportReasons: ReportReason[] = [
-  "Spam",
-  "Harassment",
-  "Inappropriate content",
-  "False information",
-  "Offensive language",
-  "Other",
-];
 type Section = "overview" | "reviews" | "questions" | "advice";
 const sections: { id: Section; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -473,24 +463,27 @@ export default function CourseDetail() {
       {isFormView ? null : (
         <View className="flex-row gap-3 border-t border-[#E7EAF0] bg-white px-4 pb-2 pt-3 dark:border-slate-800 dark:bg-slate-900">
           <Button
-            className="flex-1 px-1"
+            className="min-h-[52px] flex-1 justify-center px-1 py-2"
+            textClassName="text-[11px] leading-4"
             onPress={() =>
               router.push(`/course/${id}?section=review-form` as never)
             }
           >
-            Write Review
+            Write a Review
           </Button>
           <Button
-            className="flex-1 px-1"
+            className="min-h-[52px] flex-1 justify-center px-1 py-2"
+            textClassName="text-[11px] leading-4"
             variant="outline"
             onPress={() =>
               router.push(`/course/${id}?section=question-form` as never)
             }
           >
-            Ask Q&A
+            Ask Q/A
           </Button>
           <Button
-            className="flex-1 px-1"
+            className="min-h-[52px] flex-1 justify-center px-1 py-2"
+            textClassName="text-[11px] leading-4"
             variant="outline"
             onPress={() =>
               router.push(`/course/${id}?section=advice-form` as never)
@@ -500,7 +493,6 @@ export default function CourseDetail() {
           </Button>
         </View>
       )}
-      <CourseBottomNav />
     </SafeAreaView>
   );
 }
@@ -516,10 +508,13 @@ function CourseHeader({ course }: { course: Course }) {
           <Text className="text-lg font-extrabold leading-6 text-[#172038] dark:text-white">
             {course.title}
           </Text>
-          <Text className="mt-1 text-sm text-[#64718B] dark:text-slate-400">
-            {course.department} · {academicLabel(course.level, course.term)}
-          </Text>
+          {course.teacherNames.length ? (
+            <Text className="mt-1 text-xs text-[#64718B] dark:text-slate-400">
+              {course.teacherNames.join(", ")}
+            </Text>
+          ) : null}
           <View className="mt-2 flex-row flex-wrap gap-x-3 gap-y-1">
+            <Meta icon="map-pin" text={course.department} />
             <Meta
               icon="book-open"
               text={course.level ? `Level ${course.level}` : "Level —"}
@@ -654,7 +649,7 @@ function Overview({
         </View>
         {distribution.map((count, index) => (
           <RatingBar
-            key={count + index}
+            key={5 - index}
             stars={5 - index}
             count={count}
             total={reviews.length}
@@ -1325,6 +1320,9 @@ function Advice({
               Resources: {guide.resources}
             </Text>
           ) : null}
+          <View className="mt-3">
+            <CommunityVoteButtons contentType="courseGuide" contentId={guide.id} />
+          </View>
         </Card>
       ))}
     </View>
@@ -1342,30 +1340,19 @@ function QuestionCard({
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const report = async (
-    contentType: ContentType,
-    contentId: string,
-    questionId?: string,
-  ) => {
-    const reason = await chooseReportReason();
-    if (!reason) return;
-    try {
-      await userService.reportContent(contentType, contentId, reason, questionId);
-      Alert.alert("Report submitted", "An administrator will review it.");
-    } catch (reason) {
-      Alert.alert(
-        "Could not report content",
-        reason instanceof Error ? reason.message : "Please try again.",
-      );
-    }
+  const [replyOpen, setReplyOpen] = useState(false);
+  const answers = question.answers ?? [];
+  const sendReply = async (text: string, parentAnswerId?: string) => {
+    if (!profile || profile.role !== "student" || !text.trim()) return;
+    await questionService.addQuestionAnswer(question.id, profile, text, parentAnswerId);
+    await onPosted();
   };
   const reply = async () => {
-    if (!profile || profile.role !== "student" || !draft.trim()) return;
     setSending(true);
     try {
-      await questionService.addQuestionAnswer(question.id, profile, draft);
+      await sendReply(draft);
       setDraft("");
-      await onPosted();
+      setReplyOpen(false);
     } catch (reason) {
       Alert.alert(
         "Could not post answer",
@@ -1377,62 +1364,181 @@ function QuestionCard({
   };
   return (
     <Card className="mt-3">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-xs font-bold text-brand">
-          {question.category.toUpperCase()}
-        </Text>
-        <ReportButton contentType="courseQuestion" contentId={question.id} />
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-row flex-1 items-center gap-2">
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700">
+            <Text className="font-bold text-slate-600 dark:text-slate-200">
+              {question.anonymous ? "A" : (question.displayName ?? "S").charAt(0)}
+            </Text>
+          </View>
+          <View className="flex-1">
+            <Text className="text-sm font-bold text-[#172038] dark:text-white">
+              {question.anonymous ? "Anonymous" : question.displayName ?? "Student"}
+            </Text>
+            <Text className="text-xs text-muted">
+              {question.category} · {new Date(question.createdAt).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+        {profile?.role !== "admin" ? (
+          <ReportButton contentType="courseQuestion" contentId={question.id} />
+        ) : null}
       </View>
       <Text className="mt-2 text-sm leading-5 text-[#52627A] dark:text-slate-300">
         {question.text}
       </Text>
-      {question.answers?.map((answer) => (
-        <View
-          key={answer.id}
-          className="mt-3 rounded-xl bg-blue-50 p-3 dark:bg-slate-800"
-        >
-          <View className="flex-row justify-between">
-            <Text className="text-xs font-bold text-brand">
-              {answer.authorRole === "teacher"
-                ? "TEACHER RESPONSE"
-                : "STUDENT RESPONSE"}
-            </Text>
-            <ReportButton
-              contentType="answer"
-              contentId={answer.id}
-              questionId={question.id}
-            />
-          </View>
-          <Text className="mt-1 text-sm text-[#52627A] dark:text-slate-300">
-            {answer.text}
-          </Text>
+      <View className="mt-3 flex-row items-center justify-between">
+        <View className="flex-row items-center gap-4">
+          <CommunityVoteButtons contentType="courseQuestion" contentId={question.id} />
+          {profile?.role === "student" ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reply to question"
+              onPress={() => setReplyOpen((open) => !open)}
+              className="flex-row items-center gap-1.5"
+            >
+              <Feather name="message-circle" size={16} color="#64718B" />
+              <Text className="text-xs text-muted">{answers.length}</Text>
+            </Pressable>
+          ) : (
+            <View className="flex-row items-center gap-1.5">
+              <Feather name="message-circle" size={16} color="#64718B" />
+              <Text className="text-xs text-muted">{answers.length}</Text>
+            </View>
+          )}
         </View>
-      ))}
-      {!question.answers?.length ? (
-        <Text className="mt-3 text-xs text-muted">
-          Awaiting a teacher response
-        </Text>
-      ) : null}
-      {profile?.role === "student" ? (
+      </View>
+      {replyOpen && profile?.role === "student" ? (
         <View className="mt-3">
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            placeholder="Reply helpfully"
+            multiline
+            placeholder="Write a helpful reply"
             placeholderTextColor="#94A3B8"
-            className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700 dark:text-white"
+            className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700 dark:text-white"
           />
           <Button
             className="mt-2"
-            variant="outline"
             loading={sending}
-            onPress={reply}
+            disabled={!draft.trim()}
+            onPress={() => { void reply() }}
           >
-            Post answer
+            Post reply
           </Button>
         </View>
       ) : null}
+      {answers.filter((answer) => !answer.parentAnswerId).map((answer) => (
+        <AnswerThread
+          key={answer.id}
+          answer={answer}
+          answers={answers}
+          questionId={question.id}
+          profile={profile}
+          onReply={sendReply}
+        />
+      ))}
     </Card>
+  );
+}
+
+function AnswerThread({
+  answer,
+  answers,
+  questionId,
+  profile,
+  onReply,
+}: {
+  answer: QuestionAnswer;
+  answers: QuestionAnswer[];
+  questionId: string;
+  profile: ReturnType<typeof useApp>["profile"];
+  onReply: (text: string, parentAnswerId?: string) => Promise<void>;
+}) {
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const children = answers.filter((item) => item.parentAnswerId === answer.id);
+  const submitReply = async () => {
+    setSending(true);
+    try {
+      await onReply(draft, answer.id);
+      setDraft("");
+      setReplyOpen(false);
+    } catch (reason) {
+      Alert.alert(
+        "Could not post reply",
+        reason instanceof Error ? reason.message : "Please try again.",
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <View className="ml-3 mt-3 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+      <View className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
+        <View className="flex-row items-center justify-between gap-2">
+          <Text className="flex-1 text-xs font-bold text-[#172038] dark:text-white">
+            {answer.authorRole === "teacher" ? `${answer.authorName} · Teacher` : "Student"}
+          </Text>
+          {profile?.role !== "admin" ? (
+            <ReportButton contentType="answer" contentId={answer.id} questionId={questionId} />
+          ) : null}
+        </View>
+        <Text className="mt-1 text-sm leading-5 text-[#52627A] dark:text-slate-300">
+          {answer.text}
+        </Text>
+        <View className="mt-2 flex-row items-center gap-4">
+          <CommunityVoteButtons contentType="answer" contentId={answer.id} questionId={questionId} />
+          {profile?.role === "student" && answer.authorRole !== "teacher" ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reply to this answer"
+              onPress={() => setReplyOpen((open) => !open)}
+              className="flex-row items-center gap-1"
+            >
+              <Feather name="message-circle" size={15} color="#64718B" />
+              <Text className="text-xs text-muted">{children.length || ""}</Text>
+            </Pressable>
+          ) : children.length ? (
+            <View className="flex-row items-center gap-1">
+              <Feather name="message-circle" size={15} color="#64718B" />
+              <Text className="text-xs text-muted">{children.length}</Text>
+            </View>
+          ) : null}
+        </View>
+        {replyOpen && profile?.role === "student" && answer.authorRole !== "teacher" ? (
+          <View className="mt-2">
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              multiline
+              placeholder="Write a reply"
+              placeholderTextColor="#94A3B8"
+              className="min-h-14 rounded-lg border border-slate-200 bg-white p-2.5 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            />
+            <Button
+              className="mt-2"
+              loading={sending}
+              disabled={!draft.trim()}
+              onPress={() => { void submitReply() }}
+            >
+              Post reply
+            </Button>
+          </View>
+        ) : null}
+      </View>
+      {children.map((child) => (
+        <AnswerThread
+          key={child.id}
+          answer={child}
+          answers={answers}
+          questionId={questionId}
+          profile={profile}
+          onReply={onReply}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -1469,9 +1575,9 @@ function ReviewCard({
         {review.text}
       </Text>
       <View className="mt-3 flex-row items-center justify-between">
-        <Text className="text-xs text-muted">
-          Helpful · {review.ratings.learningValue}/5 learning value
-        </Text>
+        <View className="flex-row items-center gap-4">
+          <CommunityVoteButtons contentType="courseReview" contentId={review.id} />
+        </View>
         {profile?.role !== "admin" ? (
           <ReportButton contentType="courseReview" contentId={review.id} />
         ) : null}
@@ -1480,19 +1586,6 @@ function ReviewCard({
   );
 }
 
-async function reportReview(id: string) {
-  const reason = await chooseReportReason();
-  if (!reason) return;
-  try {
-    await userService.reportContent("courseReview", id, reason);
-    Alert.alert("Report submitted", "An administrator will review it.");
-  } catch (error) {
-    Alert.alert(
-      "Could not report review",
-      error instanceof Error ? error.message : "Please try again.",
-    );
-  }
-}
 function reviewAverage(review: Review) {
   const values = Object.values(review.ratings);
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -1551,48 +1644,6 @@ function Insight({
         {value}
       </Text>
       <Text className="mt-1 text-[10px] text-muted">{label}</Text>
-    </View>
-  );
-}
-function chooseReportReason(): Promise<ReportReason | null> {
-  return new Promise((resolve) =>
-    Alert.alert("Report content", "Choose a reason", [
-      ...reportReasons.map((reason) => ({
-        text: reason,
-        onPress: () => resolve(reason),
-      })),
-      { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
-    ]),
-  );
-}
-function CourseBottomNav() {
-  const tabs = [
-    { label: "Home", icon: "home", href: "/(student-tabs)/home" },
-    { label: "Courses", icon: "book-open", href: "/(student-tabs)/courses" },
-    { label: "Teachers", icon: "users", href: "/(student-tabs)/professors" },
-    { label: "Feedback", icon: "star", href: "/my-reviews" },
-    { label: "Activity", icon: "clock", href: "/(student-tabs)/activity" },
-  ] as const;
-  return (
-    <View className="flex-row border-t border-[#E7EAF0] bg-white px-1 pb-3 pt-2 dark:border-slate-800 dark:bg-slate-900">
-      {tabs.map((tab) => (
-        <Pressable
-          key={tab.label}
-          onPress={() => router.replace(tab.href as never)}
-          className="flex-1 items-center"
-        >
-          <Feather
-            name={tab.icon}
-            size={20}
-            color={tab.label === "Courses" ? "#1670F8" : "#7A879A"}
-          />
-          <Text
-            className={`mt-1 text-[10px] font-semibold ${tab.label === "Courses" ? "text-[#1670F8]" : "text-[#7A879A]"}`}
-          >
-            {tab.label}
-          </Text>
-        </Pressable>
-      ))}
     </View>
   );
 }

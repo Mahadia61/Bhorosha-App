@@ -63,7 +63,11 @@ export function questionBody(question: CourseQuestion) {
 }
 
 export function teacherAnswered(question: CourseQuestion) {
-  return (question.answers ?? []).some(answer => answer.authorRole === 'teacher')
+  return teacherAnswerCount(question) > 0
+}
+
+export function teacherAnswerCount(question: CourseQuestion) {
+  return (question.answers ?? []).filter(answer => answer.authorRole === 'teacher').length
 }
 
 export function promptReport(contentType: ContentType, contentId: string, questionId?: string) {
@@ -192,7 +196,7 @@ export function TeacherQuestionCard({ question, course, onAnswered }: { question
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
-  const answers = question.answers ?? []
+  const answers = (question.answers ?? []).filter(answer => answer.authorRole === 'teacher')
   const title = questionTitle(question)
   const body = questionBody(question)
   const submit = async () => {
@@ -213,8 +217,11 @@ export function TeacherQuestionCard({ question, course, onAnswered }: { question
     <View className="flex-row items-start">
       <View className="h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="font-bold text-brand">{question.anonymous ? 'S' : (question.displayName ?? 'S').charAt(0).toUpperCase()}</Text></View>
       <View className="ml-3 flex-1">
-        <Text className="font-bold leading-5 text-ink dark:text-white">{title}</Text>
-        <Text className="mt-1 text-xs text-muted">{question.anonymous ? 'Anonymous student' : question.displayName ?? 'Student'} · {formatDate(question.createdAt)}{course?.level ? ` · Level ${course.level}` : ''}</Text>
+        <View className="flex-row items-start justify-between gap-2">
+          <Text className="flex-1 font-bold leading-5 text-ink dark:text-white">{title}</Text>
+          <ReportButton contentType="courseQuestion" contentId={question.id} />
+        </View>
+        <Text className="mt-1 text-xs text-muted">{question.anonymous ? 'Anonymous student' : question.displayName ?? 'Student'} · {formatDate(question.createdAt)}</Text>
         {body ? <Text className="mt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">{body}</Text> : null}
         <View className="mt-2 flex-row flex-wrap gap-1.5">
           <Text className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-slate-800">{question.category}</Text>
@@ -225,10 +232,14 @@ export function TeacherQuestionCard({ question, course, onAnswered }: { question
             <CommunityVoteButtons contentType="courseQuestion" contentId={question.id} />
             <View className="flex-row items-center gap-1"><Feather name="message-circle" size={14} color={colors.muted} /><Text className="text-xs text-muted">{answers.length} answer{answers.length === 1 ? '' : 's'}</Text></View>
           </View>
-          <View className="flex-row items-center gap-3"><ReportButton contentType="courseQuestion" contentId={question.id} /><Pressable onPress={() => setOpen(current => !current)} className="flex-row items-center gap-1 rounded-lg bg-brand px-3 py-1.5">
-            <Feather name="corner-up-left" size={13} color="#FFFFFF" />
-            <Text className="text-xs font-bold text-white">Answer</Text>
-          </Pressable></View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reply to question"
+            onPress={() => setOpen(current => !current)}
+            className="h-9 w-9 items-center justify-center rounded-full bg-blue-50 dark:bg-slate-800"
+          >
+            <Feather name="corner-up-left" size={17} color={colors.brand} />
+          </Pressable>
         </View>
         {answers.filter(answer => !answer.parentAnswerId).map(answer => <TeacherAnswerThread key={answer.id} answer={answer} answers={answers} questionId={question.id} />)}
         {open ? <View className="mt-3"><TextInput multiline value={draft} onChangeText={setDraft} placeholder="Write an answer in বাংলা or English" placeholderTextColor="#94A3B8" className="min-h-20 rounded-xl border border-line p-3 text-sm text-ink dark:border-slate-700 dark:text-white" /><Button className="mt-2" loading={sending} onPress={() => { void submit() }}>Post answer</Button></View> : null}

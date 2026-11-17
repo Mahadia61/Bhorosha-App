@@ -1,5 +1,5 @@
 import { TeacherProfileEditor } from "@/components/admin/TeacherManagement";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -8,19 +8,37 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { Button, Card, Empty, Stars } from "@/components/ui/ui";
+import {
+  Button,
+  Card,
+  Empty,
+  FilterButton,
+  FilterOption,
+  SearchBar,
+  Stars,
+} from "@/components/ui/ui";
 import { services } from "@/lib/services/services";
 import { useApp } from "@/providers/AppProvider";
-import { academicLabel } from "@/lib/utils/academic";
+import {
+  academicLabel,
+  academicLevels,
+  academicTerms,
+  courseTypes,
+} from "@/lib/utils/academic";
 import type {
+  AcademicLevel,
+  AcademicTerm,
   AppNotification,
   Course,
+  CourseGuide,
   CourseQuestion,
   CourseStatus,
+  CourseType,
   ModerationAppeal,
   ModerationHistoryItem,
   ProfessorReview,
@@ -40,6 +58,7 @@ type AdminData = {
   teacherProfiles: TeacherProfile[];
   reviews: Review[];
   professorReviews: ProfessorReview[];
+  guides: CourseGuide[];
   questions: CourseQuestion[];
   reports: Report[];
   notifications: AppNotification[];
@@ -53,6 +72,7 @@ const emptyAdminData: AdminData = {
   teacherProfiles: [],
   reviews: [],
   professorReviews: [],
+  guides: [],
   questions: [],
   reports: [],
   notifications: [],
@@ -93,8 +113,6 @@ export default function AdminWorkspace({
     "all" | "student" | "teacher" | "suspended" | "pending"
   >("all");
   const [teacherEditorOpen, setTeacherEditorOpen] = useState(false);
-  const [moderationSection, setModerationSection] =
-    useState<ModerationSection>("reports");
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Profile | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -111,6 +129,7 @@ export default function AdminWorkspace({
         teacherProfiles,
         reviews,
         professorReviews,
+        guides,
         questions,
         reports,
         notifications,
@@ -122,6 +141,7 @@ export default function AdminWorkspace({
         services.teacherProfiles(),
         services.allReviews(),
         services.allProfessorReviews(),
+        services.allCourseGuides(),
         services.allCourseQuestions(),
         services.allReports(),
         services.adminNotifications(),
@@ -134,6 +154,7 @@ export default function AdminWorkspace({
         teacherProfiles,
         reviews,
         professorReviews,
+        guides,
         questions,
         reports,
         notifications,
@@ -561,7 +582,6 @@ export default function AdminWorkspace({
     return (
       <AdminCoursesPage
         courses={data.courses}
-        profile={profile}
         onSelect={(next) => setView(next)}
         onRefresh={load}
       />
@@ -1235,62 +1255,108 @@ function ReferenceAdminNav({
 
 function AdminCoursesPage({
   courses,
-  profile,
   onSelect,
   onRefresh,
 }: {
   courses: Course[];
-  profile: Profile;
   onSelect: (view: AdminView) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const [filter, setFilter] = useState<"all" | CourseStatus>("all");
   const [search, setSearch] = useState("");
-  const [department, setDepartment] = useState("all");
-  const [level, setLevel] = useState<"all" | "1" | "2" | "3" | "4">("all");
-  const [term, setTerm] = useState<"all" | "1" | "2">("all");
-  const [courseStatus, setCourseStatus] = useState<
-    "all" | "active" | "archived" | "draft"
-  >("all");
+  const [filters, setFilters] = useState<CourseFilterState>(emptyCourseFilters);
+  const [draftFilters, setDraftFilters] =
+    useState<CourseFilterState>(emptyCourseFilters);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [draftDepartment, setDraftDepartment] = useState("all");
-  const [draftLevel, setDraftLevel] = useState<"all" | "1" | "2" | "3" | "4">(
-    "all",
-  );
-  const [draftTerm, setDraftTerm] = useState<"all" | "1" | "2">("all");
-  const [draftCourseStatus, setDraftCourseStatus] = useState<
-    "all" | "active" | "archived" | "draft"
-  >("all");
   const [menuCourse, setMenuCourse] = useState<Course | null>(null);
-  const departments = [
-    ...new Set(courses.map((course) => course.department).filter(Boolean)),
-  ];
-  const visible = courses.filter(
-    (course) =>
-      (filter === "all" || (course.status ?? "active") === filter) &&
-      (courseStatus === "all" ||
-        (course.status ?? "active") === courseStatus) &&
-      (department === "all" || course.department === department) &&
-      (level === "all" || course.level === level) &&
-      (term === "all" || course.term === term) &&
-      `${course.code} ${course.title} ${course.teacherNames.join(" ")}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+  const [menuPosition, setMenuPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 0,
+    maxHeight: 0,
+  });
+  const menuAnchorRefs = useRef(new Map<string, View>());
+  const filterAnchorRef = useRef<View>(null);
+  const [filterPosition, setFilterPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 0,
+    maxHeight: 0,
+  });
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const departments = [...new Set(courses.map((course) => course.department))].sort();
+  const credits = [...new Set(courses.map((course) => course.credits))].sort(
+    (a, b) => a - b,
   );
+  const visible = courses.filter(
+    (course) => {
+      const searchable =
+        `${course.code} ${course.title} ${course.teacherNames.join(" ")} ${course.tags.join(" ")}`.toLowerCase();
+      return (
+        searchable.includes(search.toLowerCase()) &&
+        (!filters.department || course.department === filters.department) &&
+        (!filters.level || course.level === filters.level) &&
+        (!filters.term || course.term === filters.term) &&
+        (filters.credit === null || course.credits === filters.credit) &&
+        (!filters.courseType || course.courseType === filters.courseType)
+      );
+    },
+  );
+  const activeFilterCount = Object.values(filters).filter(
+    (value) => value !== null,
+  ).length;
   const openFilters = () => {
-    setDraftDepartment(department);
-    setDraftLevel(level);
-    setDraftTerm(term);
-    setDraftCourseStatus(courseStatus);
-    setFilterOpen(true);
+    setDraftFilters(filters);
+    filterAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      const panelWidth = Math.min(360, windowWidth - 16);
+      const panelHeight = Math.min(560, windowHeight - 32);
+      const left = Math.max(
+        8,
+        Math.min(x + width - panelWidth, windowWidth - panelWidth - 8),
+      );
+      const below = y + height + 6;
+      const top =
+        below + panelHeight <= windowHeight - 8
+          ? below
+          : y - panelHeight - 6 >= 8
+            ? y - panelHeight - 6
+            : Math.max(8, Math.min(below, windowHeight - panelHeight - 8));
+      setFilterPosition({
+        left,
+        top,
+        width: panelWidth,
+        maxHeight: panelHeight,
+      });
+      setFilterOpen(true);
+    });
   };
   const applyFilters = () => {
-    setDepartment(draftDepartment);
-    setLevel(draftLevel);
-    setTerm(draftTerm);
-    setCourseStatus(draftCourseStatus);
-    setFilter(draftCourseStatus);
+    setFilters(draftFilters);
     setFilterOpen(false);
+  };
+  const clearFilters = () => setDraftFilters(emptyCourseFilters);
+  const openCourseMenu = (course: Course) => {
+    menuAnchorRefs.current.get(course.id)?.measureInWindow((x, y, width, height) => {
+      const panelWidth = Math.min(260, windowWidth - 16);
+      const panelHeight = Math.min(320, windowHeight - 32);
+      const left = Math.max(
+        8,
+        Math.min(x + width - panelWidth, windowWidth - panelWidth - 8),
+      );
+      const below = y + height + 6;
+      const top =
+        below + panelHeight <= windowHeight - 8
+          ? below
+          : y - panelHeight - 6 >= 8
+            ? y - panelHeight - 6
+            : Math.max(8, Math.min(below, windowHeight - panelHeight - 8));
+      setMenuPosition({
+        left,
+        top,
+        width: panelWidth,
+        maxHeight: panelHeight,
+      });
+      setMenuCourse(course);
+    });
   };
   const nav: {
     id: AdminView;
@@ -1356,20 +1422,29 @@ function AdminCoursesPage({
             label="Draft"
           />
         </View>
-        <CourseFilters
-          query={search}
-          onQuery={setSearch}
-          department={draftDepartment}
-          onDepartment={setDraftDepartment}
-          level={draftLevel}
-          onLevel={setDraftLevel}
-          term={draftTerm}
-          onTerm={setDraftTerm}
-          status={draftCourseStatus}
-          onStatus={setDraftCourseStatus}
-          departments={departments}
+        <View className="mt-5">
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by course code, title, teacher, or tag"
+          />
+        </View>
+        <View className="mt-5 flex-row items-center justify-between">
+          <Text className="text-sm text-muted">
+            {visible.length} course{visible.length === 1 ? "" : "s"} found
+          </Text>
+          <View ref={filterAnchorRef} collapsable={false}>
+            <FilterButton count={activeFilterCount} onPress={openFilters} />
+          </View>
+        </View>
+        <AdminCourseFilterModal
           open={filterOpen}
-          onOpen={openFilters}
+          position={filterPosition}
+          draft={draftFilters}
+          departments={departments}
+          credits={credits}
+          onChange={setDraftFilters}
+          onClear={clearFilters}
           onClose={() => setFilterOpen(false)}
           onApply={applyFilters}
         />
@@ -1434,16 +1509,27 @@ function AdminCoursesPage({
                       (course.status ?? "active").slice(1)}
                   </Text>
                 </View>
-                <Pressable
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    setMenuCourse(course);
+                <View
+                  ref={(node) => {
+                    if (node) menuAnchorRefs.current.set(course.id, node);
+                    else menuAnchorRefs.current.delete(course.id);
                   }}
-                  hitSlop={10}
-                  className="h-10 w-8 items-center justify-center"
+                  collapsable={false}
+                  className="h-10 w-8"
                 >
-                  <Feather name="more-vertical" size={20} color="#64748B" />
-                </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Manage ${course.code}`}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      openCourseMenu(course);
+                    }}
+                    hitSlop={10}
+                    className="h-full w-full items-center justify-center"
+                  >
+                    <Feather name="more-vertical" size={20} color="#64748B" />
+                  </Pressable>
+                </View>
               </Pressable>
             ))
           ) : (
@@ -1455,6 +1541,7 @@ function AdminCoursesPage({
       </ScrollView>
       <CourseManagementMenu
         course={menuCourse}
+        position={menuPosition}
         onClose={() => setMenuCourse(null)}
         onRefresh={onRefresh}
       />
@@ -1483,10 +1570,12 @@ function AdminCoursesPage({
 }
 function CourseManagementMenu({
   course,
+  position,
   onClose,
   onRefresh,
 }: {
   course: Course | null;
+  position: { left: number; top: number; width: number; maxHeight: number };
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -1602,23 +1691,50 @@ function CourseManagementMenu({
             },
           ];
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} className="flex-1 justify-end bg-black/30">
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View className="flex-1">
         <Pressable
-          onPress={() => {}}
-          className="rounded-t-3xl bg-white px-5 pb-10 pt-5"
+          accessibilityRole="button"
+          accessibilityLabel="Close course options"
+          onPress={onClose}
+          className="absolute inset-0"
+        />
+        <ScrollView
+          className="absolute overflow-hidden rounded-2xl border border-line bg-white dark:border-slate-700 dark:bg-slate-900"
+          style={{
+            left: position.left,
+            top: position.top,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            elevation: 12,
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+          }}
+          contentContainerStyle={{ paddingVertical: 6 }}
+          showsVerticalScrollIndicator={false}
         >
-          <View className="mb-4 h-1.5 w-10 self-center rounded-full bg-slate-200" />
-          <Text className="text-lg font-bold text-slate-950">
-            Manage {course.code}
-          </Text>
-          <Text className="mt-1 text-sm text-slate-500">{course.title}</Text>
-          <View className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
+          <View className="border-b border-line px-4 py-3 dark:border-slate-700">
+            <Text className="text-sm font-bold text-ink dark:text-white">
+              Manage {course.code}
+            </Text>
+            <Text numberOfLines={1} className="mt-0.5 text-xs text-muted">
+              {course.title}
+            </Text>
+          </View>
+          <View>
             {actions.map((action) => (
               <Pressable
                 key={action.label}
                 onPress={action.onPress}
-                className="flex-row items-center border-b border-slate-100 px-4 py-4 last:border-b-0"
+                className="flex-row items-center gap-3 px-4 py-3"
               >
                 <Feather
                   name={action.icon}
@@ -1626,25 +1742,19 @@ function CourseManagementMenu({
                   color={
                     "destructive" in action && action.destructive
                       ? "#E11D48"
-                      : "#1670F8"
+                      : "#64748B"
                   }
                 />
                 <Text
-                  className={`ml-3 text-base font-semibold ${"destructive" in action && action.destructive ? "text-rose-600" : "text-slate-900"}`}
+                  className={`text-sm font-medium ${"destructive" in action && action.destructive ? "text-rose-600" : "text-ink dark:text-white"}`}
                 >
                   {action.label}
                 </Text>
               </Pressable>
             ))}
           </View>
-          <Pressable
-            onPress={onClose}
-            className="mt-4 items-center rounded-xl bg-slate-100 py-3"
-          >
-            <Text className="font-semibold text-slate-700">Cancel</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
@@ -1756,29 +1866,13 @@ function AdminMembersPage({
             label="Teachers"
           />
         </View>{" "}
-        <View className="mt-5 flex-row items-center gap-3">
+        <View className="mt-5">
           <Search
             value={search}
             onChange={setSearch}
             placeholder="Search by name, email or department..."
-            className="mt-0 flex-1"
+            className="mt-0"
           />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Cycle member filter"
-            onPress={() =>
-              setFilter(
-                filter === "all"
-                  ? "students"
-                  : filter === "students"
-                    ? "teachers"
-                    : "all",
-              )
-            }
-            className="h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white"
-          >
-            <Feather name="sliders" size={19} color="#1670F8" />
-          </Pressable>
         </View>
         <View className="mt-5 flex-row flex-wrap gap-2">
           {(
@@ -1879,16 +1973,21 @@ function AdminMembersPage({
                 </View>
               </View>
               <View
-                className={`mr-3 rounded-full px-3 py-2 ${item.role === "teacher" && !item.linked ? "bg-amber-100" : item.active ? "bg-emerald-100" : "bg-rose-100"}`}
+                className={`mr-3 flex-row items-center rounded-full px-3 py-2 ${item.role === "teacher" && !item.linked ? "bg-amber-100" : item.active ? "bg-emerald-100" : "bg-rose-100"}`}
               >
+                {item.role === "teacher" && !item.linked ? null : (
+                  <View
+                    className={`mr-1.5 h-1.5 w-1.5 rounded-full ${item.active ? "bg-emerald-700" : "bg-rose-700"}`}
+                  />
+                )}
                 <Text
                   className={`text-xs font-semibold ${item.role === "teacher" && !item.linked ? "text-amber-700" : item.active ? "text-emerald-700" : "text-rose-700"}`}
                 >
                   {item.role === "teacher" && !item.linked
                     ? "Not linked"
                     : item.active
-                      ? "â— Active"
-                      : "â— Suspended"}
+                      ? "Active"
+                      : "Suspended"}
                 </Text>
               </View>
             </Pressable>
@@ -1945,13 +2044,12 @@ function AdminModerationPage({
 }) {
   const [tab, setTab] = useState<"reports" | "history">("reports");
   const [search, setSearch] = useState("");
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const reports = data.reports.filter(
     (report) =>
       (tab === "reports"
         ? report.status === "pending"
         : report.status !== "pending") &&
-      `${report.reason} ${report.category} ${report.contentType} ${report.description}`
+      reportSearchText(report, data)
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -1971,7 +2069,7 @@ function AdminModerationPage({
     (report) => report.status === "pending",
   ).length;
   const resolved = data.reports.filter(
-    (report) => report.status !== "pending",
+    (report) => report.status === "resolved",
   ).length;
   return (
     <SafeAreaView edges={["left", "right", "bottom"]} className="flex-1 bg-[#F5F6F8]">
@@ -2105,6 +2203,72 @@ function AdminModerationPage({
       </View>
     </SafeAreaView>
   );
+}
+
+function reportedContent(report: Report, data: AdminData) {
+  if (report.contentType === "courseReview") {
+    return data.reviews.find((item) => item.id === report.contentId)?.text;
+  }
+  if (report.contentType === "professorReview") {
+    return data.professorReviews.find((item) => item.id === report.contentId)?.text;
+  }
+  if (report.contentType === "courseQuestion") {
+    return data.questions.find((item) => item.id === report.contentId)?.text;
+  }
+  if (report.contentType === "courseGuide") {
+    const guide = data.guides.find((item) => item.id === report.contentId);
+    return guide ? `${guide.title}\n${guide.text}` : undefined;
+  }
+  if (report.contentType === "answer") {
+    const question =
+      data.questions.find((item) => item.id === report.questionId) ??
+      data.questions.find((item) =>
+        item.answers?.some((answer) => answer.id === report.contentId),
+      );
+    return question?.answers?.find((answer) => answer.id === report.contentId)?.text;
+  }
+  return undefined;
+}
+
+function reportSearchText(report: Report, data: AdminData) {
+  const question = data.questions.find(
+    (item) =>
+      item.id === report.questionId ||
+      (report.contentType === "courseQuestion" && item.id === report.contentId) ||
+      item.answers?.some((answer) => answer.id === report.contentId),
+  );
+  const review = data.reviews.find((item) => item.id === report.contentId);
+  const professorReview = data.professorReviews.find(
+    (item) => item.id === report.contentId,
+  );
+  const guide = data.guides.find((item) => item.id === report.contentId);
+  const courseId =
+    review?.courseId ?? question?.courseId ?? guide?.courseId;
+  const course = data.courses.find((item) => item.id === courseId);
+  const teacherId = professorReview?.professorId;
+  const teacher =
+    data.teacherProfiles.find((item) => item.id === teacherId) ??
+    data.users.find(
+      (item) =>
+        item.id === teacherId || item.teacherProfileId === teacherId,
+    );
+  const reporter = data.users.find((item) => item.id === report.reporterId);
+  return [
+    report.reason,
+    report.category,
+    report.contentType,
+    report.description,
+    report.reporterId,
+    reporter?.name,
+    reporter?.email,
+    course?.code,
+    course?.title,
+    course?.teacherNames.join(" "),
+    teacher?.name,
+    reportedContent(report, data),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 function AdminAnalyticsPage({
   data: sourceData,
@@ -3489,124 +3653,166 @@ function MemberActions({
     </View>
   );
 }
-function CourseFilters({
-  query,
-  onQuery,
-  department,
-  onDepartment,
-  level,
-  onLevel,
-  term,
-  onTerm,
-  status,
-  onStatus,
-  departments,
+type CourseFilterState = {
+  department: string | null;
+  level: AcademicLevel | null;
+  term: AcademicTerm | null;
+  credit: number | null;
+  courseType: CourseType | null;
+};
+
+const emptyCourseFilters: CourseFilterState = {
+  department: null,
+  level: null,
+  term: null,
+  credit: null,
+  courseType: null,
+};
+
+function AdminCourseFilterModal({
   open,
-  onOpen,
+  position,
+  draft,
+  departments,
+  credits,
+  onChange,
+  onClear,
   onClose,
   onApply,
 }: {
-  query: string;
-  onQuery: (value: string) => void;
-  department: string;
-  onDepartment: (value: string) => void;
-  level: "all" | "1" | "2" | "3" | "4";
-  onLevel: (value: "all" | "1" | "2" | "3" | "4") => void;
-  term: "all" | "1" | "2";
-  onTerm: (value: "all" | "1" | "2") => void;
-  status: "all" | "active" | "archived" | "draft";
-  onStatus: (value: "all" | "active" | "archived" | "draft") => void;
-  departments: string[];
   open: boolean;
-  onOpen: () => void;
+  position: { left: number; top: number; width: number; maxHeight: number };
+  draft: CourseFilterState;
+  departments: string[];
+  credits: number[];
+  onChange: (value: CourseFilterState) => void;
+  onClear: () => void;
   onClose: () => void;
   onApply: () => void;
 }) {
   return (
-    <View className="mt-5 flex-row items-center gap-2">
+    <Modal
+      visible={open}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
       <View className="flex-1">
-        <Search
-          value={query}
-          onChange={onQuery}
-          placeholder="Search courses"
-          className="mt-0"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close course filters"
+          onPress={onClose}
+          className="absolute inset-0"
         />
-      </View>
-      <Pressable
-        onPress={onOpen}
-        className="flex-row items-center gap-2 rounded-xl border border-[#DCE7F7] bg-[#E7F0FC] px-3 py-3 dark:border-slate-700 dark:bg-slate-900"
-      >
-        <Feather name="sliders" size={16} color="#4F7EF7" />
-        <Text className="text-sm font-semibold text-brand">Filter</Text>
-      </Pressable>
-      <Modal
-        visible={open}
-        transparent
-        animationType="slide"
-        onRequestClose={onClose}
-      >
-        <View className="flex-1 justify-end bg-black/40">
-          <View className="max-h-[88%] rounded-t-3xl bg-white p-5 dark:bg-slate-900">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-xl font-bold text-ink dark:text-white">
-                Filter Courses
+        <View
+          className="absolute overflow-hidden rounded-2xl border border-line bg-white dark:border-slate-700 dark:bg-slate-900"
+          style={{
+            left: position.left,
+            top: position.top,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            elevation: 12,
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+          }}
+        >
+          <View className="flex-row items-center justify-between border-b border-line px-4 py-3 dark:border-slate-700">
+            <View>
+              <Text className="text-base font-bold text-ink dark:text-white">
+                Filter courses
               </Text>
-              <Pressable onPress={onClose}>
-                <Feather name="x" size={22} color="#64748B" />
-              </Pressable>
+              <Text className="mt-0.5 text-xs text-muted">
+                Refine the course catalogue.
+              </Text>
             </View>
-            <FilterGroup
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close course filters"
+              onPress={onClose}
+              hitSlop={8}
+            >
+              <Feather name="x" size={20} color="#64748B" />
+            </Pressable>
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: 16,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            <AdminCourseFilterGroup
               label="Department"
-              value={department}
-              options={["all", ...departments]}
-              onChange={onDepartment}
+              options={departments}
+              value={draft.department}
+              onChange={(department) => onChange({ ...draft, department })}
             />
-            <FilterGroup
+            <AdminCourseFilterGroup
               label="Level"
-              value={level}
-              options={["all", "1", "2", "3", "4"]}
-              labels={{
-                all: "All",
-                "1": "1st",
-                "2": "2nd",
-                "3": "3rd",
-                "4": "4th",
-              }}
-              onChange={(value) => onLevel(value as typeof level)}
+              options={academicLevels}
+              value={draft.level}
+              onChange={(level) => onChange({ ...draft, level })}
+              format={(level) => `Level ${level}`}
             />
-            <FilterGroup
+            <AdminCourseFilterGroup
               label="Term"
-              value={term}
-              options={["all", "1", "2"]}
-              onChange={(value) => onTerm(value as typeof term)}
+              options={academicTerms}
+              value={draft.term}
+              onChange={(term) => onChange({ ...draft, term })}
+              format={(term) => `Term ${term}`}
             />
-            <FilterGroup
-              label="Status"
-              value={status}
-              options={["all", "active", "archived", "draft"]}
-              onChange={(value) => onStatus(value as typeof status)}
+            <AdminCourseFilterGroup
+              label="Credits"
+              options={credits}
+              value={draft.credit}
+              onChange={(credit) => onChange({ ...draft, credit })}
+              format={(credit) => `${credit} credits`}
             />
-            <Button className="mt-6" onPress={onApply}>
-              Apply
-            </Button>
+            <AdminCourseFilterGroup
+              label="Course type"
+              options={courseTypes}
+              value={draft.courseType}
+              onChange={(courseType) => onChange({ ...draft, courseType })}
+            />
+          </ScrollView>
+          <View className="flex-row justify-between border-t border-line px-4 py-3 dark:border-slate-700">
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClear}
+              className="rounded-lg px-3 py-2"
+            >
+              <Text className="font-semibold text-muted">Clear</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onApply}
+              className="rounded-lg bg-brand px-5 py-2"
+            >
+              <Text className="font-bold text-white">Apply</Text>
+            </Pressable>
           </View>
         </View>
-      </Modal>
-    </View>
+      </View>
+    </Modal>
   );
 }
-function FilterGroup({
+
+function AdminCourseFilterGroup<T extends string | number>({
   label,
-  value,
   options,
-  labels,
+  value,
   onChange,
+  format = (option) => String(option),
 }: {
   label: string;
-  value: string;
-  options: string[];
-  labels?: Record<string, string>;
-  onChange: (value: string) => void;
+  options: T[];
+  value: T | null;
+  onChange: (value: T | null) => void;
+  format?: (option: T) => string;
 }) {
   return (
     <View className="mt-5">
@@ -3614,22 +3820,18 @@ function FilterGroup({
         {label}
       </Text>
       <View className="flex-row flex-wrap gap-2">
+        <FilterOption
+          label="All"
+          active={value === null}
+          onPress={() => onChange(null)}
+        />
         {options.map((option) => (
-          <Pressable
-            key={option}
+          <FilterOption
+            key={String(option)}
+            label={format(option)}
+            active={value === option}
             onPress={() => onChange(option)}
-            className={`flex-row items-center gap-2 rounded-xl border px-3 py-2.5 ${value === option ? "border-brand bg-blue-50 dark:bg-blue-950" : "border-slate-200 dark:border-slate-700"}`}
-          >
-            <View
-              className={`h-4 w-4 rounded-full border-2 ${value === option ? "border-brand bg-brand" : "border-slate-300 dark:border-slate-600"}`}
-            />
-            <Text className="text-sm text-ink dark:text-white">
-              {labels?.[option] ??
-                (option === "all"
-                  ? "All"
-                  : option.charAt(0).toUpperCase() + option.slice(1))}
-            </Text>
-          </Pressable>
+          />
         ))}
       </View>
     </View>
@@ -3931,7 +4133,7 @@ function ModerationFilters({
                 ? "Questions"
                 : item === "responses"
                   ? "Teacher responses"
-                  : item}
+                    : item}
           </Text>
         </Pressable>
       ))}
@@ -4056,6 +4258,7 @@ function AppealList({
     />
   );
 }
+
 function AdminMenu({
   visible,
   onClose,
@@ -4222,24 +4425,24 @@ function ReportCard({
   data: AdminData;
   onResolved: () => Promise<void>;
 }) {
+  const [resolving, setResolving] = useState(false);
   const questionWithAnswer =
     report.contentType === "answer"
-      ? data.questions.find((question) =>
-          question.answers?.some((answer) => answer.id === report.contentId),
+      ? data.questions.find(
+          (question) =>
+            question.id === report.questionId ||
+            question.answers?.some((answer) => answer.id === report.contentId),
         )
       : undefined;
-  const content =
-    report.contentType === "courseReview"
-      ? data.reviews.find((item) => item.id === report.contentId)?.text
-      : report.contentType === "professorReview"
-        ? data.professorReviews.find((item) => item.id === report.contentId)
-            ?.text
-        : report.contentType === "courseQuestion"
-          ? data.questions.find((item) => item.id === report.contentId)?.text
-          : questionWithAnswer?.answers?.find(
-              (answer) => answer.id === report.contentId,
-            )?.text;
+  const content = reportedContent(report, data);
+  const reporter = data.users.find((item) => item.id === report.reporterId);
+  const canRemove =
+    report.contentType !== "comment" &&
+    (report.contentType !== "answer" ||
+      Boolean(questionWithAnswer || report.questionId));
   const resolve = async (action: "kept" | "removed") => {
+    if (resolving) return;
+    setResolving(true);
     try {
       if (action === "removed") {
         if (report.contentType === "courseReview")
@@ -4250,11 +4453,18 @@ function ReportCard({
           await services.deleteCourseQuestion(report.contentId);
         else if (report.contentType === "courseGuide")
           await services.deleteCourseGuide(report.contentId);
-        else if (questionWithAnswer)
+        else if (report.contentType === "answer") {
+          const questionId = questionWithAnswer?.id ?? report.questionId;
+          if (!questionId) {
+            throw new Error("The question for this answer report is unavailable.");
+          }
           await services.deleteQuestionAnswer(
-            questionWithAnswer.id,
+            questionId,
             report.contentId,
           );
+        } else {
+          throw new Error("This reported content type cannot be removed here.");
+        }
       }
       await services.updateReportStatus(report.id, "resolved", action);
       await onResolved();
@@ -4263,6 +4473,8 @@ function ReportCard({
         "Could not resolve report",
         reason instanceof Error ? reason.message : "Please try again.",
       );
+    } finally {
+      setResolving(false);
     }
   };
   return (
@@ -4274,6 +4486,9 @@ function ReportCard({
       <Text className="mt-2 text-xs text-rose-600">
         Category: {report.category}
       </Text>
+      <Text className="mt-1 text-xs text-muted">
+        Reported by {reporter?.name ?? report.reporterRole}
+      </Text>
       {report.description ? (
         <Text className="mt-2 text-sm text-muted">
           Details: {report.description}
@@ -4283,35 +4498,45 @@ function ReportCard({
         {content ?? "The reported content is no longer available."}
       </Text>
       <View className="mt-4 flex-row flex-wrap gap-3">
-        <Text
+        <Pressable
+          accessibilityRole="button"
+          disabled={resolving}
           onPress={() => {
             void resolve("kept");
           }}
-          className="text-sm font-semibold text-brand"
+          className="rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-950"
         >
-          Keep content
-        </Text>
-        <Text
-          onPress={() =>
-            Alert.alert(
-              "Remove content?",
-              "This removes the public record and preserves moderation history.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Remove",
-                  style: "destructive",
-                  onPress: () => {
-                    void resolve("removed");
+          <Text className="text-sm font-semibold text-brand">
+            {resolving ? "Saving..." : "Keep content"}
+          </Text>
+        </Pressable>
+        {canRemove ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={resolving}
+            onPress={() =>
+              Alert.alert(
+                "Remove content?",
+                "This removes the public record and preserves moderation history.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Remove",
+                    style: "destructive",
+                    onPress: () => {
+                      void resolve("removed");
+                    },
                   },
-                },
-              ],
-            )
-          }
-          className="text-sm font-semibold text-rose-600"
-        >
-          Remove content
-        </Text>
+                ],
+              )
+            }
+            className="rounded-lg bg-rose-50 px-3 py-2 dark:bg-rose-950"
+          >
+            <Text className="text-sm font-semibold text-rose-600">
+              Remove content
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </Card>
   );

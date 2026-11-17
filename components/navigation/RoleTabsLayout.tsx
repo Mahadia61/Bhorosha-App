@@ -24,6 +24,6 @@ export function RoleTabsLayout({ role, hidden = false }: { role: Role; hidden?: 
     tabBarIcon: ({ color, size }) => <Feather name={icons[route.name] ?? 'circle'} size={size} color={color} />,
   })}>
     {roleTabs[role].map(tab => <Tabs.Screen key={tab.name} name={tab.name} options={{ title: tab.label }} />)}
-    {role === 'student' ? <Tabs.Screen name="profile" options={{ href: null }} /> : null}
+    {role !== 'admin' ? <Tabs.Screen name="profile" options={{ href: null }} /> : null}
   </Tabs>
 }

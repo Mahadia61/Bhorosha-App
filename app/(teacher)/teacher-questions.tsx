@@ -7,7 +7,7 @@ import { questionService } from '@/features/questions'
 import { useApp } from '@/providers/AppProvider'
 import type { Course, CourseQuestion } from '@/types'
 import { TeacherHeader } from '@/components/teacher/TeacherHeader'
-import { SortMenu, TeacherQuestionCard, teacherAnswered } from '@/components/teacher/teacher-ui'
+import { SortMenu, TeacherQuestionCard, teacherAnswered, teacherAnswerCount } from '@/components/teacher/teacher-ui'
 
 type StatusFilter = 'all' | 'unanswered' | 'answered'
 type SortKey = 'recent' | 'answers'
@@ -36,7 +36,7 @@ export default function TeacherQuestions(_props: { inTab?: boolean } = {}) {
       const answered = teacherAnswered(question)
       return haystack.includes(search.toLowerCase()) && (filter === 'all' || (filter === 'answered' ? answered : !answered))
     })
-    return filtered.sort((left, right) => sort === 'answers' ? (right.answers?.length ?? 0) - (left.answers?.length ?? 0) : right.createdAt - left.createdAt)
+    return filtered.sort((left, right) => sort === 'answers' ? teacherAnswerCount(right) - teacherAnswerCount(left) : right.createdAt - left.createdAt)
   }, [questions, courses, search, filter, sort])
 
   if (profile?.role !== 'teacher') return <Redirect href="/" />

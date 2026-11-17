@@ -449,7 +449,6 @@ export default function CourseDetail() {
               <Questions
                 questions={questions}
                 profile={profile}
-                onPosted={load}
               />
             ) : null}
             {section === "advice" ? (
@@ -1220,11 +1219,9 @@ function RatingRow({
 function Questions({
   questions,
   profile,
-  onPosted,
 }: {
   questions: CourseQuestion[];
   profile: ReturnType<typeof useApp>["profile"];
-  onPosted: () => Promise<void>;
 }) {
   return (
     <View>
@@ -1242,7 +1239,6 @@ function Questions({
             key={question.id}
             question={question}
             profile={profile}
-            onPosted={onPosted}
           />
         ))
       ) : (
@@ -1332,36 +1328,14 @@ function Advice({
 function QuestionCard({
   question,
   profile,
-  onPosted,
 }: {
   question: CourseQuestion;
   profile: ReturnType<typeof useApp>["profile"];
-  onPosted: () => Promise<void>;
 }) {
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [replyOpen, setReplyOpen] = useState(false);
-  const answers = question.answers ?? [];
-  const sendReply = async (text: string, parentAnswerId?: string) => {
-    if (!profile || profile.role !== "student" || !text.trim()) return;
-    await questionService.addQuestionAnswer(question.id, profile, text, parentAnswerId);
-    await onPosted();
-  };
-  const reply = async () => {
-    setSending(true);
-    try {
-      await sendReply(draft);
-      setDraft("");
-      setReplyOpen(false);
-    } catch (reason) {
-      Alert.alert(
-        "Could not post answer",
-        reason instanceof Error ? reason.message : "Please try again.",
-      );
-    } finally {
-      setSending(false);
-    }
-  };
+  const answers = (question.answers ?? []).filter((answer) => answer.authorRole === "teacher");
+  const rootAnswers = answers.filter(
+    (answer) => !answer.parentAnswerId || !answers.some((item) => item.id === answer.parentAnswerId),
+  );
   return (
     <Card className="mt-3">
       <View className="flex-row items-start justify-between gap-3">
@@ -1390,52 +1364,19 @@ function QuestionCard({
       <View className="mt-3 flex-row items-center justify-between">
         <View className="flex-row items-center gap-4">
           <CommunityVoteButtons contentType="courseQuestion" contentId={question.id} />
-          {profile?.role === "student" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Reply to question"
-              onPress={() => setReplyOpen((open) => !open)}
-              className="flex-row items-center gap-1.5"
-            >
-              <Feather name="message-circle" size={16} color="#64718B" />
-              <Text className="text-xs text-muted">{answers.length}</Text>
-            </Pressable>
-          ) : (
-            <View className="flex-row items-center gap-1.5">
-              <Feather name="message-circle" size={16} color="#64718B" />
-              <Text className="text-xs text-muted">{answers.length}</Text>
-            </View>
-          )}
+          <View className="flex-row items-center gap-1.5">
+            <Feather name="message-circle" size={16} color="#64718B" />
+            <Text className="text-xs text-muted">{answers.length}</Text>
+          </View>
         </View>
       </View>
-      {replyOpen && profile?.role === "student" ? (
-        <View className="mt-3">
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            multiline
-            placeholder="Write a helpful reply"
-            placeholderTextColor="#94A3B8"
-            className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700 dark:text-white"
-          />
-          <Button
-            className="mt-2"
-            loading={sending}
-            disabled={!draft.trim()}
-            onPress={() => { void reply() }}
-          >
-            Post reply
-          </Button>
-        </View>
-      ) : null}
-      {answers.filter((answer) => !answer.parentAnswerId).map((answer) => (
+      {rootAnswers.map((answer) => (
         <AnswerThread
           key={answer.id}
           answer={answer}
           answers={answers}
           questionId={question.id}
           profile={profile}
-          onReply={sendReply}
         />
       ))}
     </Card>
@@ -1447,33 +1388,13 @@ function AnswerThread({
   answers,
   questionId,
   profile,
-  onReply,
 }: {
   answer: QuestionAnswer;
   answers: QuestionAnswer[];
   questionId: string;
   profile: ReturnType<typeof useApp>["profile"];
-  onReply: (text: string, parentAnswerId?: string) => Promise<void>;
 }) {
-  const [replyOpen, setReplyOpen] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const children = answers.filter((item) => item.parentAnswerId === answer.id);
-  const submitReply = async () => {
-    setSending(true);
-    try {
-      await onReply(draft, answer.id);
-      setDraft("");
-      setReplyOpen(false);
-    } catch (reason) {
-      Alert.alert(
-        "Could not post reply",
-        reason instanceof Error ? reason.message : "Please try again.",
-      );
-    } finally {
-      setSending(false);
-    }
-  };
   return (
     <View className="ml-3 mt-3 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
       <View className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
@@ -1490,43 +1411,7 @@ function AnswerThread({
         </Text>
         <View className="mt-2 flex-row items-center gap-4">
           <CommunityVoteButtons contentType="answer" contentId={answer.id} questionId={questionId} />
-          {profile?.role === "student" && answer.authorRole !== "teacher" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Reply to this answer"
-              onPress={() => setReplyOpen((open) => !open)}
-              className="flex-row items-center gap-1"
-            >
-              <Feather name="message-circle" size={15} color="#64718B" />
-              <Text className="text-xs text-muted">{children.length || ""}</Text>
-            </Pressable>
-          ) : children.length ? (
-            <View className="flex-row items-center gap-1">
-              <Feather name="message-circle" size={15} color="#64718B" />
-              <Text className="text-xs text-muted">{children.length}</Text>
-            </View>
-          ) : null}
         </View>
-        {replyOpen && profile?.role === "student" && answer.authorRole !== "teacher" ? (
-          <View className="mt-2">
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              multiline
-              placeholder="Write a reply"
-              placeholderTextColor="#94A3B8"
-              className="min-h-14 rounded-lg border border-slate-200 bg-white p-2.5 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-            />
-            <Button
-              className="mt-2"
-              loading={sending}
-              disabled={!draft.trim()}
-              onPress={() => { void submitReply() }}
-            >
-              Post reply
-            </Button>
-          </View>
-        ) : null}
       </View>
       {children.map((child) => (
         <AnswerThread
@@ -1535,7 +1420,6 @@ function AnswerThread({
           answers={answers}
           questionId={questionId}
           profile={profile}
-          onReply={onReply}
         />
       ))}
     </View>

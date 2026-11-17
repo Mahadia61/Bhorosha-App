@@ -204,14 +204,13 @@ test('unverified teacher can access assigned course feedback and Q&A; assignment
   const [teacherAnswer] = answeredQuestion.answers
   assert.equal(teacherAnswer.authorName, linked.name)
   await assert.rejects(
-    student.services.addQuestionAnswer(question.id, await student.services.session(), 'Thanks for clarifying.', teacherAnswer.id),
-    /Only a teacher can reply/,
+    student.services.addQuestionAnswer(question.id, await student.services.session(), 'Thanks for clarifying.'),
+    /Only the course teacher can answer/,
   )
   const blockedReply = doc(collection(student.db, 'courseQuestions', question.id, 'answers'))
   const blockedBatch = writeBatch(student.db)
   const blockedAt = Date.now()
   blockedBatch.set(blockedReply, {
-    parentAnswerId: teacherAnswer.id,
     authorRole: 'student',
     authorName: 'Student',
     text: 'Unauthorized student reply',
@@ -221,7 +220,6 @@ test('unverified teacher can access assigned course feedback and Q&A; assignment
     id: blockedReply.id,
     questionId: question.id,
     courseId: course.id,
-    parentAnswerId: teacherAnswer.id,
     authorRole: 'student',
     createdAt: blockedAt,
   })
@@ -252,23 +250,59 @@ test('reporting creates an admin notification without a moderation backend', asy
   const student = client('student', 'u1@student.cuet.ac.bd')
   await student.services.addReview({ courseId: course.id, text: 'Helpful feedback.', ratings, anonymous: true })
   const [review] = await student.services.reviews(course.id)
+  await student.services.addCourseGuide({
+    courseId: course.id,
+    category: 'Preparation Tips',
+    title: 'Reported guide',
+    text: 'Content to remove.',
+    resources: '',
+    anonymous: true,
+  })
+  const [guide] = await student.services.courseGuides(course.id)
   const originalBackendUrl = process.env.EXPO_PUBLIC_BACKEND_URL
   process.env.EXPO_PUBLIC_BACKEND_URL = ''
   try {
     await student.services.reportContent('courseReview', review.id, 'Spam', undefined, 'Please review this content.')
+    await student.services.reportContent('courseGuide', guide.id, 'Spam', undefined, 'Please review this guide.')
   } finally {
     if (originalBackendUrl === undefined) delete process.env.EXPO_PUBLIC_BACKEND_URL
     else process.env.EXPO_PUBLIC_BACKEND_URL = originalBackendUrl
   }
   const reports = await admin.services.adminNotifications()
-  assert.equal(reports.length, 1)
+  assert.equal(reports.length, 2)
   assert.equal(reports[0].title, 'New reported content')
   assert.equal(reports[0].read, false)
-  const [report] = await admin.services.allReports()
-  assert.equal(report.contentId, review.id)
+  const allReports = await admin.services.allReports()
+  const reviewReport = allReports.find(item => item.contentId === review.id)
+  const guideReport = allReports.find(item => item.contentId === guide.id)
+  assert.ok(reviewReport)
+  assert.ok(guideReport)
   assert.equal((await student.services.studentNotifications('student')).length, 0)
-  await admin.services.updateReportStatus(report.id, 'resolved', 'kept')
-  assert.equal((await admin.services.allReports())[0].action, 'kept')
+  await admin.services.updateReportStatus(reviewReport.id, 'resolved', 'kept')
+  await admin.services.deleteCourseGuide(guide.id)
+  await admin.services.updateReportStatus(guideReport.id, 'resolved', 'removed')
+  const resolvedReports = await admin.services.allReports()
+  assert.equal(resolvedReports.find(item => item.id === reviewReport.id).action, 'kept')
+  assert.equal(resolvedReports.find(item => item.id === guideReport.id).action, 'removed')
+  assert.equal((await admin.services.courseGuides(course.id)).length, 0)
+  await seed({
+    'reports/reviewed-report': {
+      contentType: 'courseReview',
+      contentId: review.id,
+      reporterId: 'student',
+      reporterRole: 'student',
+      reportedUserId: '',
+      category: 'Spam',
+      reason: 'Spam',
+      description: '',
+      status: 'reviewed',
+      createdAt: Date.now(),
+    },
+  })
+  const reviewedReport = (await admin.services.allReports()).find(
+    item => item.id === 'reviewed-report',
+  )
+  assert.equal(reviewedReport?.status, 'reviewed')
 })
 
 test('student account cleanup removes authored content, answers, reports, and votes only', async () => {
@@ -304,12 +338,14 @@ test('student account cleanup removes authored content, answers, reports, and vo
   const [question] = await student.services.courseQuestions(course.id)
   await teacher.services.addTeacherResponse(studentReview.id, 'Teacher response.')
   await teacher.services.addProfessorResponse(professorReview.id, 'Teacher response.')
+  assert.equal((await admin.services.allCourseGuides())[0].title, 'My guide')
   const [reviewWithResponse] = (await student.services.reviews(course.id)).filter(review => review.id === studentReview.id)
   const [professorReviewWithResponse] = (await student.services.professorReviews(teacherProfile.id)).filter(review => review.id === professorReview.id)
-  await student.services.addQuestionAnswer(question.id, await student.services.session(), 'My answer.')
-  const [answeredQuestion] = await student.services.courseQuestions(course.id)
-  const [studentAnswer] = answeredQuestion.answers
-  await teacher.services.addQuestionAnswer(question.id, linkedTeacher, 'Teacher reply.', studentAnswer.id)
+  await assert.rejects(
+    student.services.addQuestionAnswer(question.id, await student.services.session(), 'My answer.'),
+    /Only the course teacher can answer/,
+  )
+  await teacher.services.addQuestionAnswer(question.id, linkedTeacher, 'Teacher response.')
   const [fullyAnsweredQuestion] = await student.services.courseQuestions(course.id)
   const teacherAnswer = fullyAnsweredQuestion.answers.find(answer => answer.authorRole === 'teacher')
   await student.services.toggleCommunityVote('courseReview', otherReview.id, 'like')
@@ -335,7 +371,7 @@ test('student account cleanup removes authored content, answers, reports, and vo
       getDoc(doc(firestore, 'professorReviews', professorReview.id)),
       getDoc(doc(firestore, 'professorReviews', professorReview.id, 'teacherResponses', professorReviewWithResponse.responses[0].id)),
       getDoc(doc(firestore, 'courseQuestions', question.id)),
-      getDoc(doc(firestore, 'courseQuestions', question.id, 'answers', studentAnswer.id)),
+      getDoc(doc(firestore, 'courseQuestions', question.id, 'answers', teacherAnswer.id)),
       getDoc(doc(firestore, 'courseQuestions', question.id, 'answers', teacherAnswer.id)),
       getDoc(doc(firestore, 'courseGuides', guideMirrors.docs[0].id)),
       getDoc(doc(firestore, 'reports', report.id)),

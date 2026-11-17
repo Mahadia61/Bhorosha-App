@@ -185,7 +185,11 @@ const reportFrom = (id: string, data: Record<string, unknown>): Report => ({
   reason: (data.reason ?? data.category) as ReportReason,
   category: (data.category ?? data.reason) as ReportReason,
   description: String(data.description ?? ''),
-  status: data.status === 'resolved' || data.status === 'reviewed' || data.status === 'removed' || data.status === 'hidden' || data.status === 'kept' || data.status === 'warned' ? 'resolved' : 'pending',
+  status: data.status === 'reviewed'
+    ? 'reviewed'
+    : data.status === 'resolved' || data.status === 'removed' || data.status === 'hidden' || data.status === 'kept' || data.status === 'warned'
+      ? 'resolved'
+      : 'pending',
   ...(typeof data.action === 'string' ? { action: data.action as ReportAction } : data.status === 'removed' ? { action: 'removed' } : data.status === 'warned' ? { action: 'warned' } : data.status === 'kept' ? { action: 'kept' } : {}),
   createdAt: Number(data.createdAt ?? 0),
   ...(typeof data.resolvedAt === 'number' ? { resolvedAt: data.resolvedAt } : {}),
@@ -804,6 +808,21 @@ export const services = {
     const snapshot = await getDocs(query(collection(firestore, 'courseQuestions'), orderBy('createdAt', 'desc'), limit(QUERY_LIMITS.questions)))
     return firebaseQuestions(snapshot)
   },
+  async allCourseGuides(): Promise<CourseGuide[]> {
+    const { db: firestore } = requireFirebase()
+    const snapshot = await getDocs(query(collection(firestore, 'courseGuides'), orderBy('createdAt', 'desc'), limit(QUERY_LIMITS.guides)))
+    return snapshot.docs.map(item => ({
+      id: item.id,
+      courseId: String(item.data().courseId ?? ''),
+      category: item.data().category ? String(item.data().category) : undefined,
+      title: String(item.data().title ?? ''),
+      text: String(item.data().text ?? ''),
+      resources: item.data().resources ? String(item.data().resources) : undefined,
+      anonymous: item.data().anonymous !== false,
+      displayName: typeof item.data().displayName === 'string' ? item.data().displayName : null,
+      createdAt: Number(item.data().createdAt ?? 0),
+    }))
+  },
   async deleteCourseQuestion(questionId: string) {
     const { db: firestore } = requireFirebase()
     const answers = await getDocs(collection(firestore, 'courseQuestions', questionId, 'answers'))
@@ -1113,6 +1132,7 @@ export const services = {
   async addQuestionAnswer(questionId: string, author: Profile, text: string, parentAnswerId?: string) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (!firebaseAuth.currentUser) throw new Error('Sign in before answering a question.')
+    if (author.role !== 'teacher') throw new Error('Only the course teacher can answer a question.')
     const answerText = sanitizeCommunityText(text.trim())
     if (!answerText) throw new Error('Answer text is required.')
     const question = await getDoc(doc(firestore, 'courseQuestions', questionId))
@@ -1120,9 +1140,6 @@ export const services = {
     if (parentAnswerId) {
       const parentAnswer = await getDoc(doc(firestore, 'courseQuestions', questionId, 'answers', parentAnswerId))
       if (!parentAnswer.exists()) throw new Error('The reply you are responding to no longer exists.')
-      if (author.role === 'student' && parentAnswer.data().authorRole === 'teacher') {
-        throw new Error('Only a teacher can reply to a teacher answer.')
-      }
     }
     const answerRef = doc(collection(firestore, 'courseQuestions', questionId, 'answers'))
     const createdAt = Date.now()

@@ -22,6 +22,7 @@ import {
   TeacherReviewCard,
   TeacherRow,
   UnderlineTabs,
+  teacherAnswerCount,
   reviewAverage,
 } from '@/components/teacher/teacher-ui'
 import { Feather } from '@expo/vector-icons'
@@ -99,7 +100,7 @@ export default function TeacherCourseDetail() {
       const matches = question.text.toLowerCase().includes(questionSearch.toLowerCase()) || question.category.toLowerCase().includes(questionSearch.toLowerCase())
       return matches && (questionFilter === 'all' || (questionFilter === 'answered' ? answered : !answered))
     })
-    .sort((left, right) => questionSort === 'answers' ? (right.answers?.length ?? 0) - (left.answers?.length ?? 0) : right.createdAt - left.createdAt), [questions, questionSearch, questionFilter, questionSort])
+    .sort((left, right) => questionSort === 'answers' ? teacherAnswerCount(right) - teacherAnswerCount(left) : right.createdAt - left.createdAt), [questions, questionSearch, questionFilter, questionSort])
 
   const visibleGuides = useMemo(() => guides
     .filter(guide => `${guide.title} ${guide.text} ${guide.resources ?? ''}`.toLowerCase().includes(adviceSearch.toLowerCase()))

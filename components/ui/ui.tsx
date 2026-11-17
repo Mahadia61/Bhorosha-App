@@ -263,7 +263,9 @@ function RoleProfileMenuButton({ label, onPress }: { label: string; onPress: () 
     )
   } else if (chrome.role === "teacher") {
     items.push(
-      { label: "Settings", icon: "settings", href: "/teacher-settings" },
+      { label: "Profile", icon: "user", href: profileHref as Href },
+      { label: "Edit Profile", icon: "edit-2", href: `${profileHref}?section=edit` as Href },
+      { label: "Settings", icon: "settings", href: `${profileHref}?section=settings` as Href },
     )
   } else {
     items.push(

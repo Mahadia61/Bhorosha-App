@@ -39,7 +39,7 @@ export const roleTabs: Record<Exclude<Role, never>, TabItem[]> = {
 
 export const roleRoutes = {
   student: { notifications: '/student-notifications' as Href, profile: '/(student-tabs)/profile' as Href, home: '/(student-tabs)/home' as Href },
-  teacher: { notifications: '/teacher-notifications' as Href, profile: '/(teacher-tabs)/profile' as Href, home: '/(teacher-tabs)/dashboard' as Href },
+  teacher: { notifications: '/teacher-notifications' as Href, profile: '/teacher-profile' as Href, home: '/(teacher-tabs)/dashboard' as Href },
   admin: { notifications: '/admin-notifications' as Href, profile: '/admin-profile' as Href, home: '/(admin-tabs)/overview' as Href },
 }
 

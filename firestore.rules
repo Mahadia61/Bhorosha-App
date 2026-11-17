@@ -595,13 +595,10 @@ service cloud.firestore {
           && validText(request.resource.data.text, 1500) && validFreshClientTime(request.resource.data.createdAt)
           && (!('parentAnswerId' in request.resource.data)
             || (request.resource.data.parentAnswerId is string
-              && exists(/databases/$(database)/documents/courseQuestions/$(questionId)/answers/$(request.resource.data.parentAnswerId))
-              && (request.resource.data.authorRole == 'teacher'
-                || get(/databases/$(database)/documents/courseQuestions/$(questionId)/answers/$(request.resource.data.parentAnswerId)).data.authorRole != 'teacher')))
-          && ((teacherTeaches(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
-              && request.resource.data.authorRole == 'teacher' && request.resource.data.authorName == userProfile().data.name)
-            || (studentCanAccessCourse(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
-              && request.resource.data.authorRole == 'student' && request.resource.data.authorName == 'Student'))
+              && exists(/databases/$(database)/documents/courseQuestions/$(questionId)/answers/$(request.resource.data.parentAnswerId))))
+          && teacherTeaches(get(/databases/$(database)/documents/courseQuestions/$(questionId)).data.courseId)
+          && request.resource.data.authorRole == 'teacher'
+          && request.resource.data.authorName == userProfile().data.name
           && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/answers/$(answerId))
           && matchingAnswerMirror(questionId, answerId);
         allow update: if isAdmin();

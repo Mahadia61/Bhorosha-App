@@ -68,14 +68,18 @@ export default function ProfessorDetail() {
       <View className="pt-2"><Pressable onPress={() => router.back()} className="h-9 w-9 items-center justify-center"><Feather name="arrow-left" size={21} color={isDark ? '#E2E8F0' : '#172038'} /></Pressable></View>
       <View className="mt-5 flex-row items-center gap-3"><View className="h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800"><Text className="text-2xl font-extrabold text-brand">{initials(teacher.name)}</Text></View><View className="flex-1"><Text className="text-sm font-extrabold text-[#172038] dark:text-white">{teacher.name}</Text><Text className="mt-1 text-xs text-[#52627A] dark:text-slate-300">{teacher.designation || 'Faculty member'}</Text><Text className="text-xs text-[#52627A] dark:text-slate-300">Department of {teacher.department}</Text>{teacher.email ? <View className="mt-1 flex-row items-center gap-1"><Feather name="mail" size={11} color="#64718B" /><Text className="text-[10px] text-[#64718B]">{teacher.email}</Text></View> : null}</View></View>
       <View className="mt-5 flex-row border-b border-slate-200 dark:border-slate-800">{(['overview', 'reviews', 'questions'] as const).map(item => <Pressable key={item} onPress={() => selectTab(item)} className="flex-1 items-center pb-3"><Text className={`text-xs font-bold ${tab === item ? 'text-brand' : 'text-[#64718B] dark:text-slate-400'}`}>{item === 'questions' ? 'Q&A' : item[0].toUpperCase() + item.slice(1)}</Text>{tab === item ? <View className="absolute bottom-0 h-0.5 w-full bg-brand" /> : null}</Pressable>)}</View>
-      {tab === 'overview' ? <Overview courses={courses} teacher={teacher} summary={summary} summarizing={summarizing} onSummary={() => { void generateSummary() }} onAsk={() => openForm('question')} onReview={() => openForm('review')} /> : null}
-      {tab === 'reviews' ? <Reviews reviews={visibleReviews} search={search} onSearch={setSearch} onWrite={() => openForm('review')} /> : null}
-      {tab === 'questions' ? <Questions questions={visibleQuestions} filter={questionFilter} onFilter={setQuestionFilter} search={search} onSearch={setSearch} onAsk={() => openForm('question')} profile={profile} /> : null}
+      {tab === 'overview' ? <Overview courses={courses} teacher={teacher} summary={summary} summarizing={summarizing} onSummary={() => { void generateSummary() }} /> : null}
+      {tab === 'reviews' ? <Reviews reviews={visibleReviews} search={search} onSearch={setSearch} /> : null}
+      {tab === 'questions' ? <Questions questions={visibleQuestions} filter={questionFilter} onFilter={setQuestionFilter} search={search} onSearch={setSearch} profile={profile} /> : null}
     </ScrollView>
+    <View className="flex-row gap-3 border-t border-[#E7EAF0] bg-white px-4 pb-2 pt-3 dark:border-slate-800 dark:bg-slate-900">
+      <Button className="min-h-[52px] flex-1 justify-center px-1 py-2" textClassName="text-[11px] leading-4" onPress={() => openForm('review')}>Write a Review</Button>
+      <Button className="min-h-[52px] flex-1 justify-center px-1 py-2" textClassName="text-[11px] leading-4" variant="outline" onPress={() => openForm('question')}>Ask Q/A</Button>
+    </View>
   </SafeAreaView>
 }
 
-function Overview({ courses, teacher, summary, summarizing, onSummary, onAsk, onReview }: { courses: Course[]; teacher: Professor; summary: ReviewSummary | null; summarizing: boolean; onSummary: () => void; onAsk: () => void; onReview: () => void }) {
+function Overview({ courses, teacher, summary, summarizing, onSummary }: { courses: Course[]; teacher: Professor; summary: ReviewSummary | null; summarizing: boolean; onSummary: () => void }) {
   return <View>
     <Text className="mt-5 text-sm font-extrabold text-[#172038] dark:text-white">Courses Taught</Text>
     <Card className="mt-3 p-2">{courses.length ? courses.map(course => <Pressable key={course.id} onPress={() => router.push(`/course/${course.id}`)} className="flex-row items-center border-b border-slate-100 px-2 py-3 last:border-b-0 dark:border-slate-800"><View className="h-11 w-11 items-center justify-center rounded-lg bg-blue-100 dark:bg-slate-800"><Text className="text-center text-[10px] font-extrabold leading-3 text-brand">{course.code.split(' ').join('\n')}</Text></View><View className="ml-3 flex-1"><Text className="text-xs font-bold text-[#172038] dark:text-white">{course.title}</Text><Text className="mt-1 text-[10px] text-muted">Level {course.level ?? '—'} · Term {course.term ?? '—'}</Text></View><Feather name="chevron-right" size={16} color="#172038" /></Pressable>) : <Empty title="No courses assigned" body="Assigned courses will appear here." />}</Card>
@@ -95,18 +99,16 @@ function Overview({ courses, teacher, summary, summarizing, onSummary, onAsk, on
     </Card>
     <Text className="mt-5 text-sm font-extrabold text-[#172038] dark:text-white">Contact</Text>
     <Card className="mt-3 p-3"><Contact icon="mail" label={teacher.email ?? 'Not provided'} /><Contact icon="users" label={`Department\n${teacher.department}`} /><Contact icon="map-pin" label="CUET, Chattogram" /></Card>
-    <View className="mt-5 flex-row gap-2"><Button className="flex-1" variant="outline" onPress={onAsk}>Ask a Question</Button><Button className="flex-1" onPress={onReview}>Write a Review</Button></View>
   </View>
 }
 
-function Reviews({ reviews, search, onSearch, onWrite }: { reviews: ProfessorReview[]; search: string; onSearch: (value: string) => void; onWrite: () => void }) {
+function Reviews({ reviews, search, onSearch }: { reviews: ProfessorReview[]; search: string; onSearch: (value: string) => void }) {
   return <View>
     <View className="mt-4 flex-row items-center rounded-xl border border-[#E7EAF0] bg-white px-3 dark:border-slate-800 dark:bg-slate-900">
       <Feather name="search" size={16} color="#64718B" />
       <TextInput value={search} onChangeText={onSearch} placeholder="Search reviews…" placeholderTextColor="#94A3B8" className="flex-1 px-3 py-2.5 text-sm text-[#172038] dark:text-white" />
     </View>
     {reviews.length ? reviews.map(review => <ReviewCard key={review.id} review={review} />) : <Empty title="No reviews yet" body="Student feedback will appear here." />}
-    <Button className="mt-4" onPress={onWrite}>Write a Review</Button>
   </View>
 }
 
@@ -129,18 +131,18 @@ function ReviewCard({ review }: { review: ProfessorReview }) {
   </Card>
 }
 
-function Questions({ questions, filter, onFilter, search, onSearch, onAsk, profile }: { questions: CourseQuestion[]; filter: QuestionFilter; onFilter: (value: QuestionFilter) => void; search: string; onSearch: (value: string) => void; onAsk: () => void; profile: Profile | null }) {
+function Questions({ questions, filter, onFilter, search, onSearch, profile }: { questions: CourseQuestion[]; filter: QuestionFilter; onFilter: (value: QuestionFilter) => void; search: string; onSearch: (value: string) => void; profile: Profile | null }) {
   const filters = [{ key: 'all', label: 'All' }, { key: 'course', label: 'Course Related' }, { key: 'academic', label: 'Academic' }, { key: 'other', label: 'Other' }] as const
   return <View>
     <View className="mt-4 flex-row flex-wrap gap-2">{filters.map(item => <Pressable key={item.key} onPress={() => onFilter(item.key)} className={`rounded-lg px-3 py-2 ${filter === item.key ? 'bg-brand' : 'bg-white dark:bg-slate-900'}`}><Text className={`text-[10px] font-semibold ${filter === item.key ? 'text-white' : 'text-muted'}`}>{item.label}</Text></Pressable>)}</View>
     <View className="mt-3 flex-row items-center rounded-xl border border-[#E7EAF0] bg-white px-3 dark:border-slate-800 dark:bg-slate-900"><Feather name="search" size={16} color="#64718B" /><TextInput value={search} onChangeText={onSearch} placeholder="Search questions…" placeholderTextColor="#94A3B8" className="flex-1 px-3 py-2.5 text-sm text-[#172038] dark:text-white" /></View>
     {questions.length ? questions.map(question => <QuestionCard key={question.id} question={question} profile={profile} />) : <Empty title="No questions yet" body="Questions about this teacher's courses will appear here." />}
-    <Button className="mt-4" onPress={onAsk}>Ask a Question</Button>
   </View>
 }
 
 function QuestionCard({ question, profile }: { question: CourseQuestion; profile: Profile | null }) {
-  const answers = question.answers ?? []
+  const answers = (question.answers ?? []).filter(answer => answer.authorRole === 'teacher')
+  const rootAnswers = answers.filter(answer => !answer.parentAnswerId || !answers.some(item => item.id === answer.parentAnswerId))
   return <Card className="mt-3 p-4">
     <View className="flex-row items-start justify-between gap-3">
       <View className="flex-1 flex-row items-center gap-2">
@@ -155,7 +157,7 @@ function QuestionCard({ question, profile }: { question: CourseQuestion; profile
         <CommunityVoteButtons contentType="courseQuestion" contentId={question.id} />
       </View>
     </View>
-    {answers.filter(answer => !answer.parentAnswerId).map(answer => <AnswerThread key={answer.id} answer={answer} answers={answers} questionId={question.id} profile={profile} />)}
+    {rootAnswers.map(answer => <AnswerThread key={answer.id} answer={answer} answers={answers} questionId={question.id} profile={profile} />)}
   </Card>
 }
 

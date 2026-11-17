@@ -304,7 +304,11 @@ service cloud.firestore {
           && resource.data.linkedUserId == null
           && request.resource.data.linkedUserId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId'])
-          && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherProfileId == teacherId);
+          && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.teacherProfileId == teacherId)
+        || (isTeacher() && resource.data.linkedUserId == request.auth.uid
+          && request.resource.data.linkedUserId == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId'])
+          && !existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)));
       allow delete: if false;
     }
     match /teacherProfileEmails/{email} {
@@ -338,7 +342,10 @@ service cloud.firestore {
           && request.resource.data.department == resource.data.department
           && request.resource.data.active == false
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt']));
-      allow delete: if own(userId) && isStudent();
+      allow delete: if own(userId) && isStudent()
+        || (own(userId) && isTeacher()
+          && (!('teacherProfileId' in resource.data)
+            || getAfter(/databases/$(database)/documents/teacherProfiles/$(resource.data.teacherProfileId)).data.linkedUserId == null));
 
       match /courseReviews/{reviewId} {
         allow read: if own(userId) && activeUser();
@@ -424,8 +431,10 @@ service cloud.firestore {
             || getAfter(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)/answers/$(answerId)).data.parentAnswerId == request.resource.data.parentAnswerId)
           && get(/databases/$(database)/documents/courseQuestions/$(request.resource.data.questionId)).data.courseId == request.resource.data.courseId;
         allow update: if false;
-        allow delete: if own(userId) && isStudent()
-          && !existsAfter(/databases/$(database)/documents/courseQuestions/$(resource.data.questionId)/answers/$(answerId));
+        allow delete: if own(userId) && (
+          (isStudent() && !existsAfter(/databases/$(database)/documents/courseQuestions/$(resource.data.questionId)/answers/$(answerId)))
+          || isTeacher()
+        );
       }
 
       match /communityVotes/{contentKey} {

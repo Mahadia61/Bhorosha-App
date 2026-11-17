@@ -7,7 +7,7 @@ import { authStateWithProfile, initialAuthState } from '@/store/authStore'
 import { initialThemeState, setThemeOverride } from '@/store/themeStore'
 
 type StudentDetails = { currentLevel: AcademicLevel; currentTerm: AcademicTerm }
-type AppContextValue = { profile: Profile | null; ready: boolean; isDark: boolean; signIn: (email: string, password: string) => Promise<Profile>; signUp: (name: string, email: string, password: string, role: Role, department: string, designation?: string, studentDetails?: StudentDetails) => Promise<Profile>; resendEmailVerification: () => Promise<void>; confirmEmailVerification: () => Promise<Profile>; requestPasswordReset: (email: string) => Promise<void>; changePassword: (currentPassword: string, nextPassword: string) => Promise<void>; deleteStudentAccount: (password: string) => Promise<void>; signOut: () => Promise<void>; updateProfile: (next: Profile) => Promise<void>; setThemePreference: (darkMode: boolean) => Promise<void> }
+type AppContextValue = { profile: Profile | null; ready: boolean; isDark: boolean; signIn: (email: string, password: string) => Promise<Profile>; signUp: (name: string, email: string, password: string, role: Role, department: string, designation?: string, studentDetails?: StudentDetails) => Promise<Profile>; resendEmailVerification: () => Promise<void>; confirmEmailVerification: () => Promise<Profile>; requestPasswordReset: (email: string) => Promise<void>; changePassword: (currentPassword: string, nextPassword: string) => Promise<void>; deleteStudentAccount: (password: string) => Promise<void>; deleteTeacherAccount: (password: string) => Promise<void>; signOut: () => Promise<void>; updateProfile: (next: Profile) => Promise<void>; setThemePreference: (darkMode: boolean) => Promise<void> }
 const AppContext = createContext<AppContextValue | null>(null)
 const themeKey = (userId: string) => `bhorosha-theme-${userId}`
 const readStoredTheme = (userId: string) => {
@@ -42,6 +42,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     changePassword: async (currentPassword, nextPassword) => services.changePassword(currentPassword, nextPassword),
     deleteStudentAccount: async password => {
       await services.deleteStudentAccount(password)
+      setThemeState(current => setThemeOverride(current, null))
+      setAuthState(current => authStateWithProfile(current, null))
+    },
+    deleteTeacherAccount: async password => {
+      await services.deleteTeacherAccount(password)
       setThemeState(current => setThemeOverride(current, null))
       setAuthState(current => authStateWithProfile(current, null))
     },

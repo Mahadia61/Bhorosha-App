@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Alert, ScrollView, Switch, Text, View } from 'react-native'
+import { Alert, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 import { Redirect, router, useLocalSearchParams } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Button, Card, Field, PageHeader, Screen } from '@/components/ui'
-import { ProfileActionRow, ProfileIdentityCard } from '@/components/common/ProfileComponents'
 import { useApp } from '@/providers/AppProvider'
 
-type ProfileSection = 'overview' | 'edit' | 'settings'
+type ProfileSection = 'overview' | 'edit' | 'settings' | 'delete'
 
 export default function TeacherProfile() {
-  const { profile, isDark, updateProfile, changePassword, setThemePreference, signOut } = useApp()
+  const { profile, isDark, updateProfile, changePassword, setThemePreference, deleteTeacherAccount } = useApp()
   const { section: requestedSection } = useLocalSearchParams<{ section?: string }>()
   const [section, setSection] = useState<ProfileSection>(resolveSection(requestedSection))
   const [name, setName] = useState('')
@@ -20,7 +19,9 @@ export default function TeacherProfile() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
   const [changingAppearance, setChangingAppearance] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
 
   useEffect(() => {
     if (!profile) return
@@ -30,9 +31,16 @@ export default function TeacherProfile() {
 
   useEffect(() => {
     setSection(resolveSection(requestedSection))
+    if (requestedSection === 'delete') setDeleteDialogOpen(true)
   }, [requestedSection])
 
   if (!profile || profile.role !== 'teacher') return <Redirect href="/" />
+  if (section === 'overview') return <Redirect href="/(teacher-tabs)/dashboard" />
+
+  const exitProfile = () => {
+    if (router.canGoBack()) router.back()
+    else router.replace('/(teacher-tabs)/dashboard')
+  }
 
   const saveProfile = async () => {
     if (!profile.teacherProfileId && !name.trim()) {
@@ -50,7 +58,7 @@ export default function TeacherProfile() {
         name: profile.teacherProfileId ? profile.name : name.trim(),
         bio: bio.trim(),
       })
-      setSection('overview')
+      exitProfile()
     } catch (reason) {
       Alert.alert('Could not save profile', reason instanceof Error ? reason.message : 'Please try again.')
     } finally {
@@ -92,24 +100,30 @@ export default function TeacherProfile() {
     }
   }
 
-  const logout = async () => {
-    if (signingOut) return
-    setSigningOut(true)
+  const removeAccount = async () => {
+    if (!deletePassword) {
+      Alert.alert('Password required', 'Enter your password to confirm account deletion.')
+      return
+    }
+    setDeletingAccount(true)
     try {
-      await signOut()
+      await deleteTeacherAccount(deletePassword)
+      setDeletePassword('')
+      setDeleteDialogOpen(false)
       router.replace('/welcome')
     } catch (reason) {
-      Alert.alert('Could not sign out', reason instanceof Error ? reason.message : 'Please try again.')
-      setSigningOut(false)
+      Alert.alert('Could not delete account', reason instanceof Error ? reason.message : 'Please try again.')
+    } finally {
+      setDeletingAccount(false)
     }
   }
 
-  const title = section === 'overview' ? 'Profile' : section === 'edit' ? 'Edit Profile' : 'Settings'
-  const subtitle = section === 'overview'
-    ? 'Manage your account and preferences.'
-    : section === 'edit'
-      ? 'Update your teacher profile details.'
-      : 'Manage appearance and account security.'
+  const title = section === 'edit' ? 'Edit Profile' : section === 'settings' ? 'Settings' : 'Delete Account'
+  const subtitle = section === 'edit'
+    ? 'Update your teacher profile details.'
+    : section === 'settings'
+      ? 'Manage appearance and account security.'
+      : 'Permanently remove your login account.'
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>
@@ -118,33 +132,9 @@ export default function TeacherProfile() {
           <PageHeader
             title={title}
             subtitle={subtitle}
-            onBack={section === 'overview' ? undefined : () => setSection('overview')}
+            onBack={exitProfile}
           />
         </View>
-
-        {section === 'overview' ? (
-          <>
-            <ProfileIdentityCard
-              name={profile.name}
-              email={profile.email}
-              role="Teacher"
-              detail={`${profile.designation ?? 'Teacher'} · Department of ${profile.department}`}
-              photoUrl={profile.photoUrl}
-            />
-            <Card className="mt-3 p-0">
-              <ProfileActionRow icon="user" title="Edit Profile" onPress={() => setSection('edit')} />
-              <ProfileActionRow icon="settings" title="Settings" onPress={() => setSection('settings')} />
-            </Card>
-            <Card className="mt-3 p-0">
-              <ProfileActionRow
-                icon="log-out"
-                title={signingOut ? 'Signing out…' : 'Sign out'}
-                danger
-                onPress={() => { void logout() }}
-              />
-            </Card>
-          </>
-        ) : null}
 
         {section === 'edit' ? (
           <Card className="mt-5">
@@ -218,10 +208,73 @@ export default function TeacherProfile() {
           </>
         ) : null}
       </ScrollView>
+      <Modal
+        visible={deleteDialogOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deletingAccount) {
+            setDeleteDialogOpen(false)
+            setDeletePassword('')
+            exitProfile()
+          }
+        }}
+      >
+        <View className="flex-1 items-center justify-center bg-black/50 px-5">
+          <View className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-slate-900">
+            <View className="flex-row items-center gap-3">
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-rose-100 dark:bg-rose-950">
+                <Feather name="alert-triangle" size={20} color="#EF4444" />
+              </View>
+              <Text className="flex-1 text-lg font-extrabold text-ink dark:text-white">
+                Delete your account?
+              </Text>
+            </View>
+            <Text className="mt-4 text-sm leading-5 text-muted">
+              Your login and private account data will be removed. Your teacher profile, courses, and public contributions will remain. This cannot be undone.
+            </Text>
+            <Text className="mb-1.5 mt-5 text-sm font-medium text-ink dark:text-slate-100">
+              Enter your password to continue
+            </Text>
+            <TextInput
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              secureTextEntry
+              autoCapitalize="none"
+              placeholder="Your current password"
+              placeholderTextColor="#94A3B8"
+              editable={!deletingAccount}
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-base text-ink dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+            <View className="mt-5 flex-row gap-3">
+              <Pressable
+                disabled={deletingAccount}
+                onPress={() => {
+                  setDeleteDialogOpen(false)
+                  setDeletePassword('')
+                  exitProfile()
+                }}
+                className="flex-1 items-center rounded-xl border border-slate-200 py-3 dark:border-slate-700"
+              >
+                <Text className="font-semibold text-ink dark:text-white">Cancel</Text>
+              </Pressable>
+              <Pressable
+                disabled={deletingAccount}
+                onPress={() => { void removeAccount() }}
+                className={`flex-1 items-center rounded-xl bg-rose-600 py-3 ${deletingAccount ? 'opacity-60' : ''}`}
+              >
+                <Text className="font-semibold text-white">
+                  {deletingAccount ? 'Deleting…' : 'Delete Account'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   )
 }
 
 function resolveSection(section?: string): ProfileSection {
-  return section === 'edit' || section === 'settings' ? section : 'overview'
+  return section === 'edit' || section === 'settings' || section === 'delete' ? section : 'overview'
 }

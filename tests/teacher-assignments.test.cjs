@@ -419,6 +419,59 @@ test('email is optional, normalized, unique and can be added before a later logi
   await assertFails(getDocs(collection(teacherClient.db, 'teacherProfileEmails')))
 })
 
+test('teacher account deletion unlinks login but keeps the directory profile, courses, and public answers', async () => {
+  const admin = client('admin', 'admin@example.com')
+  const teacherProfile = await admin.saveTeacherProfile(teacherInput())
+  const course = await admin.services.createCourse(courseInput(teacherProfile))
+  await seed({
+    'users/teacher': account('teacher'),
+    'courseQuestions/question': { courseId: course.id, text: 'Question' },
+    'courseQuestions/question/answers/answer': {
+      authorRole: 'teacher',
+      authorName: teacherProfile.name,
+      text: 'Public answer',
+      createdAt: Date.now(),
+    },
+  })
+  const teacher = client('teacher')
+  await teacher.linkTeacherAccount(account('teacher'))
+  await seed({
+    'users/teacher/answers/answer': {
+      id: 'answer',
+      questionId: 'question',
+      courseId: course.id,
+      authorRole: 'teacher',
+      createdAt: Date.now(),
+    },
+    'users/teacher/activity/answer-activity': {
+      kind: 'answer',
+      targetId: 'answer',
+      questionId: 'question',
+      courseId: course.id,
+      text: 'Public answer',
+      createdAt: Date.now(),
+    },
+  })
+
+  await teacher.services.deleteTeacherAccountData('teacher')
+  assert.equal((await getDoc(doc(teacher.db, 'users', 'teacher', 'answers', 'answer'))).exists(), false)
+  assert.equal((await getDoc(doc(teacher.db, 'users', 'teacher', 'activity', 'answer-activity'))).exists(), false)
+  assert.equal((await getDoc(doc(teacher.db, 'courseQuestions', 'question', 'answers', 'answer'))).exists(), true)
+
+  const unlinkOnly = writeBatch(teacher.db)
+  unlinkOnly.update(doc(teacher.db, 'teacherProfiles', teacherProfile.id), { linkedUserId: null })
+  await assertFails(unlinkOnly.commit())
+
+  const deleteAccount = writeBatch(teacher.db)
+  deleteAccount.update(doc(teacher.db, 'teacherProfiles', teacherProfile.id), { linkedUserId: null })
+  deleteAccount.delete(doc(teacher.db, 'users', 'teacher'))
+  await assertSucceeds(deleteAccount.commit())
+
+  assert.equal((await getDoc(doc(admin.db, 'teacherProfiles', teacherProfile.id))).data().linkedUserId, null)
+  assert.equal((await getDoc(doc(admin.db, 'teacherDirectory', teacherProfile.id))).exists(), true)
+  assert.equal((await getDoc(doc(admin.db, 'courses', course.id))).exists(), true)
+})
+
 test('students can submit a course review and senior advice without a course instance or backend', async () => {
   const studentEmail = 'u2204061@student.cuet.ac.bd'
   const teacher = { ...account('teacher-1', 'teacher'), teacherProfileId: 'teacher-1' }

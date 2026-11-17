@@ -460,6 +460,67 @@ export const services = {
     await deleteUser(currentUser)
   },
 
+  async deleteTeacherAccount(password: string) {
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
+    const currentUser = firebaseAuth.currentUser
+    if (!currentUser?.email) throw new Error('Sign in again before deleting your account.')
+    if (!password) throw new Error('Enter your password to confirm account deletion.')
+    const profile = await firebaseProfile(currentUser.uid)
+    if (profile?.role !== 'teacher') throw new Error('Only teacher accounts can be deleted here.')
+    if (!profile.teacherProfileId) throw new Error('Your teacher profile is not linked to the directory. Contact an administrator before deleting your account.')
+
+    const teacherRef = doc(firestore, 'teacherProfiles', profile.teacherProfileId)
+    const teacher = await getDoc(teacherRef)
+    if (!teacher.exists() || teacher.data().linkedUserId !== currentUser.uid) {
+      throw new Error('Your teacher profile link could not be verified. Contact an administrator before deleting your account.')
+    }
+
+    const credential = EmailAuthProvider.credential(currentUser.email, password)
+    try {
+      await reauthenticateWithCredential(currentUser, credential)
+    } catch (reason) {
+      const code = typeof reason === 'object' && reason !== null && 'code' in reason ? String(reason.code) : ''
+      if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password')) {
+        throw new Error('The password is incorrect. Check it and try again.')
+      }
+      if (code.includes('auth/too-many-requests')) {
+        throw new Error('Too many password attempts. Wait a little and try again.')
+      }
+      throw reason instanceof Error ? reason : new Error('Could not verify your password.')
+    }
+
+    await this.deleteTeacherAccountData(currentUser.uid)
+    const batch = writeBatch(firestore)
+    batch.update(teacherRef, { linkedUserId: null })
+    batch.delete(doc(firestore, 'users', currentUser.uid))
+    await batch.commit()
+    await deleteUser(currentUser)
+  },
+
+  async deleteTeacherAccountData(userId: string) {
+    const { auth: firebaseAuth, db: firestore } = requireFirebase()
+    if (firebaseAuth.currentUser?.uid !== userId) throw new Error('Sign in again before deleting account data.')
+    const profile = await firebaseProfile(userId)
+    if (profile?.role !== 'teacher') throw new Error('Only teacher account data can be deleted here.')
+
+    const userCollection = (name: string) => collection(firestore, 'users', userId, name)
+    const [answers, activities, ownVotes] = await Promise.all([
+      getDocs(userCollection('answers')),
+      getDocs(userCollection('activity')),
+      getDocs(userCollection('communityVotes')),
+    ])
+    const voteDeleteGroups = ownVotes.docs.map(item => {
+      const voterId = item.data().voterId
+      if (typeof voterId !== 'string') throw new Error(`Vote record ${item.id} is missing its voter reference.`)
+      return [doc(firestore, 'communityVotes', item.id, 'voters', voterId), item.ref]
+    })
+    await deleteDocumentRefGroups(firestore, voteDeleteGroups)
+    await deleteDocumentRefGroups(firestore, [
+      ...answers.docs.map(item => [item.ref]),
+      ...activities.docs.map(item => [item.ref]),
+    ])
+  },
+
   async deleteStudentAccountData(userId: string) {
     const { auth: firebaseAuth, db: firestore } = requireFirebase()
     if (firebaseAuth.currentUser?.uid !== userId) throw new Error('Sign in again before deleting account data.')

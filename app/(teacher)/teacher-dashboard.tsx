@@ -73,7 +73,7 @@ export default function TeacherDashboard() {
   return <Screen>
     <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 32 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}>
       <View className="mt-3">
-        <TeacherHeader eyebrow="Welcome back," title={profile.name} subtitle={profile.designation ? `${profile.designation} · Department of ${profile.department}` : `Department of ${profile.department}`} />
+        <TeacherHeader eyebrow="Welcome back," title={profile.name} subtitle={profile.designation ? `${profile.designation} · Department of ${profile.department}` : `Department of ${profile.department}`} showAvatar />
       </View>
       <TeacherWelcomeBanner />
       <View className="mt-5 flex-row gap-3">

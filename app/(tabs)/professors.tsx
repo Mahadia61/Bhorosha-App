@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native'
+import { FlatList, Image, Pressable, RefreshControl, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
 import { Card, Empty, LoadingState, PageHeader, ResultMeta, Screen, SearchBar } from '@/components/ui/ui'
@@ -71,14 +71,18 @@ function TeacherCard({ teacher, onPress }: { teacher: TeacherWithCourses; onPres
     >
       <Card className="mb-3 p-4">
         <View className="flex-row items-center">
-          <View
-            style={{ backgroundColor: colors.background }}
-            className="h-14 w-14 items-center justify-center rounded-full"
-          >
-            <Text style={{ color: colors.text }} className="text-xl font-extrabold">
-              {initials(teacher.name)}
-            </Text>
-          </View>
+          {teacher.photoUrl ? (
+            <Image source={{ uri: teacher.photoUrl }} className="h-14 w-14 rounded-full bg-slate-200" resizeMode="cover" />
+          ) : (
+            <View
+              style={{ backgroundColor: colors.background }}
+              className="h-14 w-14 items-center justify-center rounded-full"
+            >
+              <Text style={{ color: colors.text }} className="text-xl font-extrabold">
+                {initials(teacher.name)}
+              </Text>
+            </View>
+          )}
           <View className="ml-4 flex-1">
             <Text className="text-base font-extrabold text-[#172038] dark:text-white">
               {teacher.name}

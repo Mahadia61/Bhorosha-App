@@ -2,6 +2,7 @@ import { useRef, useState, type PropsWithChildren, type ReactNode } from "react"
 import {
   Alert,
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -298,7 +299,15 @@ function RoleProfileMenuButton({ label, onPress }: { label: string; onPress: () 
           onPress={openMenu}
           className="h-11 w-11 items-center justify-center rounded-full border border-line bg-white dark:border-slate-800 dark:bg-slate-900"
         >
-          <Feather name="user" size={20} color={chrome.isDark ? "#E2E8F0" : colors.ink} />
+          {chrome.photoUrl ? (
+            <Image
+              source={{ uri: chrome.photoUrl }}
+              className="h-11 w-11 rounded-full"
+              resizeMode="cover"
+            />
+          ) : (
+            <Feather name="user" size={20} color={chrome.isDark ? "#E2E8F0" : colors.ink} />
+          )}
         </Pressable>
       </View>
       <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setVisible(false)}>

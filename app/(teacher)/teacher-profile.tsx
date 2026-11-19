@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Alert, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
+import { Alert, Image, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 import { Redirect, router, useLocalSearchParams } from 'expo-router'
 import { Feather } from '@expo/vector-icons'
+import * as ImagePicker from 'expo-image-picker'
 import { Button, Card, Field, PageHeader, Screen } from '@/components/ui'
 import { useApp } from '@/providers/AppProvider'
 
 type ProfileSection = 'overview' | 'edit' | 'settings' | 'delete'
 
 export default function TeacherProfile() {
-  const { profile, isDark, updateProfile, changePassword, setThemePreference, deleteTeacherAccount } = useApp()
+  const { profile, isDark, updateProfile, uploadProfilePhoto, changePassword, setThemePreference, deleteTeacherAccount } = useApp()
   const { section: requestedSection } = useLocalSearchParams<{ section?: string }>()
   const [section, setSection] = useState<ProfileSection>(resolveSection(requestedSection))
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
+  const [photoPreview, setPhotoPreview] = useState<string | undefined>()
+  const [photoRemoved, setPhotoRemoved] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [saving, setSaving] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -27,7 +31,9 @@ export default function TeacherProfile() {
     if (!profile) return
     setName(profile.name)
     setBio(profile.bio ?? '')
-  }, [profile?.name, profile?.bio])
+    setPhotoPreview(profile.photoUrl)
+    setPhotoRemoved(false)
+  }, [profile?.name, profile?.bio, profile?.photoUrl])
 
   useEffect(() => {
     setSection(resolveSection(requestedSection))
@@ -42,6 +48,24 @@ export default function TeacherProfile() {
     else router.replace('/(teacher-tabs)/dashboard')
   }
 
+  const chooseProfilePhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!permission.granted) {
+      Alert.alert('Photo access needed', 'Allow access to your photos to choose a profile picture.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    })
+    if (!result.canceled && result.assets[0]) {
+      setPhotoPreview(result.assets[0].uri)
+      setPhotoRemoved(false)
+    }
+  }
+
   const saveProfile = async () => {
     if (!profile.teacherProfileId && !name.trim()) {
       Alert.alert('Enter your name', 'Your profile name cannot be empty.')
@@ -53,15 +77,22 @@ export default function TeacherProfile() {
     }
     setSaving(true)
     try {
+      let nextPhotoUrl = photoRemoved ? undefined : profile.photoUrl
+      if (!photoRemoved && photoPreview && photoPreview !== profile.photoUrl) {
+        setUploadingPhoto(true)
+        nextPhotoUrl = await uploadProfilePhoto(profile.id, photoPreview)
+      }
       await updateProfile({
         ...profile,
         name: profile.teacherProfileId ? profile.name : name.trim(),
         bio: bio.trim(),
+        photoUrl: nextPhotoUrl,
       })
       exitProfile()
     } catch (reason) {
       Alert.alert('Could not save profile', reason instanceof Error ? reason.message : 'Please try again.')
     } finally {
+      setUploadingPhoto(false)
       setSaving(false)
     }
   }
@@ -138,6 +169,36 @@ export default function TeacherProfile() {
 
         {section === 'edit' ? (
           <Card className="mt-5">
+            <View className="mb-5 items-center">
+              {photoPreview ? (
+                <Image source={{ uri: photoPreview }} className="h-24 w-24 rounded-full bg-slate-200" />
+              ) : (
+                <View className="h-24 w-24 items-center justify-center rounded-full bg-blue-100 dark:bg-slate-800">
+                  <Feather name="user" size={42} color="#1670F8" />
+                </View>
+              )}
+              <View className="mt-4 flex-row gap-3">
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={saving || uploadingPhoto}
+                  onPress={() => { void chooseProfilePhoto() }}
+                  className="rounded-xl bg-brand px-4 py-2.5"
+                >
+                  <Text className="font-semibold text-white">{photoPreview ? 'Change photo' : 'Upload photo'}</Text>
+                </Pressable>
+                {photoPreview ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={saving || uploadingPhoto}
+                    onPress={() => { setPhotoPreview(undefined); setPhotoRemoved(true) }}
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 dark:border-slate-700"
+                  >
+                    <Text className="font-semibold text-ink dark:text-white">Remove</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <Text className="mt-3 text-xs text-muted">Choose a square image for the best profile preview.</Text>
+            </View>
             {!profile.teacherProfileId ? (
               <Field label="Full name" value={name} onChangeText={setName} placeholder="Your full name" autoCapitalize="words" />
             ) : (

@@ -1,5 +1,5 @@
 import { EmailAuthProvider, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword } from 'firebase/auth'
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction, setDoc, where, writeBatch, type DocumentReference, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { collection, deleteField, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction, setDoc, where, writeBatch, type DocumentReference, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { auth, db, firebaseEnabled } from '../firebase/firebase'
 import { sanitizeCommunityText } from '../utils/content-filter'
 import { adminTeacherProfiles, courseTeacherAssignments, ensureTeacherAccount, linkTeacherAccount, saveTeacherProfile, teacherIdentityIds, teacherProfiles, teachesCourse } from './teacher-profiles'
@@ -620,10 +620,11 @@ export const services = {
     if (next.designation) value.designation = next.designation
     if (next.role === 'teacher') value.bio = next.bio ?? ''
     if (next.photoUrl) value.photoUrl = next.photoUrl
+    else if (next.role === 'teacher') value.photoUrl = deleteField()
     const batch = writeBatch(firestore)
     batch.set(doc(firestore, 'users', next.id), value, { merge: true })
     if (next.role === 'teacher' && !next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.id), directoryFrom(next), { merge: true })
-    if (next.role === 'teacher' && next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.teacherProfileId), { bio: next.bio ?? '', photoUrl: next.photoUrl ?? '', updatedAt: Date.now() }, { merge: true })
+    if (next.role === 'teacher' && next.teacherProfileId) batch.set(doc(firestore, 'teacherDirectory', next.teacherProfileId), { bio: next.bio ?? '', photoUrl: next.photoUrl ?? deleteField(), updatedAt: Date.now() }, { merge: true })
     await batch.commit()
     return next
   },
@@ -1060,11 +1061,11 @@ export const services = {
         courseId: input.courseId,
         ...(instanceId ? { courseInstanceId: instanceId } : {}),
         ...(includeCategory ? { category } : {}),
-        title,
+               title,
         text,
         resources: input.resources?.trim() || '',
         anonymous,
-        displayName,
+               displayName,
         createdAt,
       })
       batch.set(doc(firestore, 'users', user.uid, 'guides', guideRef.id), {
